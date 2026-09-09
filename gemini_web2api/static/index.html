@@ -375,12 +375,12 @@
       <h2>Connection</h2>
       <div class="copy-row"><code id="baseUrl"></code><button class="ghost mini" type="button" data-copy="base">Copy</button></div>
       <div class="field">
-        <label for="apiKey">API key</label>
+        <label for="apiKey">Server password (not a Google API key)</label>
         <div class="key-wrap">
           <input id="apiKey" type="password" placeholder="sk-gemini" autocomplete="off">
           <button class="ghost mini" id="toggleKey" type="button">Show</button>
         </div>
-        <div class="hint" id="authHint">If chat does nothing, this server likely requires a key. Docker example: sk-gemini</div>
+        <div class="hint" id="authHint">Do not paste an AI Studio / Gemini key. Use config.json api_keys. Docker default: sk-gemini</div>
       </div>
       <button class="ghost" id="saveKey" type="button">Save key</button>
 
@@ -405,7 +405,7 @@
           <div class="attach-row" id="attachRow" hidden></div>
           <div class="composer-row">
             <button class="icon-btn" id="attachBtn" type="button" title="Attach image" aria-label="Attach image">＋</button>
-            <textarea id="input" rows="1" placeholder="Message Gemini…"></textarea>
+            <textarea id="input" ro/textarea>
             <button class="send" id="sendBtn" type="button" aria-label="Send">➤</button>
             <button class="stop" id="stopBtn" type="button" hidden aria-label="Stop">■</button>
           </div>
@@ -422,11 +422,12 @@
 
   <div class="modal" id="authModal" role="dialog" aria-labelledby="authTitle">
     <div class="modal-card">
-      <h2 id="authTitle">API key required</h2>
-      <p>This Render server has <code>api_keys</code> enabled, so Send will not call Gemini until you paste a key. The Docker example key is <code>sk-gemini</code>.</p>
+      <h2 id="authTitle">Server password required</h2>
+      <p id="authBody">This is <b>not</b> Google’s Gemini API. A key from AI Studio / aistudio.google.com will always fail. Paste the local password from <code>config.json</code> → <code>api_keys</code>. Docker default is <code>sk-gemini</code>.</p>
       <input id="modalKey" type="password" placeholder="sk-gemini" autocomplete="off">
       <div class="row">
         <button class="ghost" id="authSkip" type="button">Close</button>
+        <button class="ghost" id="authExample" type="button">Use sk-gemini</button>
         <button class="primary" id="authSave" type="button">Save and continue</button>
       </div>
     </div>
@@ -465,6 +466,11 @@
       });
     }
     function originBase() { return window.location.origin + "/v1"; }
+    function looksGoogleKey(value) {
+      var v = String(value || "");
+      return v.indexOf("AIza") === 0 || v.indexOf("AQ.") === 0 || v.indexOf("ya29.") === 0 || v.indexOf("GOCSPX-") === 0;
+    }
+    var GOOGLE_KEY_MSG = "That looks like a Google AI Studio / Gemini API key. This server does not use those. Type sk-gemini (the Docker config password) instead.";
 
     var state = {
       model: storageGet("g2a.model") || "gemini-3.6-flash",
@@ -656,7 +662,10 @@
       $("apiKey").value = state.apiKey;
       storageSet("g2a.key", state.apiKey);
       $("authHint").className = "hint";
-      $("authHint").textContent = state.apiKey ? "Key saved in this browser. It is sent only to this server." : "If chat does nothing, this server likely requires a key. Docker example: sk-gemini";
+      $("authHint").textContent = state.apiKey
+        ? (looksGoogleKey(state.apiKey) ? GOOGLE_KEY_MSG : "Password saved in this browser. It is sent only to this server.")
+        : "Do not paste an AI Studio / Gemini key. Use config.json api_keys. Docker default: sk-gemini";
+      if (looksGoogleKey(state.apiKey)) $("authHint").className = "hint warn";
       updateSnippet();
     }
 
@@ -678,7 +687,7 @@
         if (state.authRequired && !state.apiKey) {
           setStatus("bad", "need API key");
           $("authHint").className = "hint warn";
-          state.notice = "This server requires an API key. Open Settings or use the prompt — Docker example key is sk-gemini.";
+          state.notice = "This server wants the local password from config.json api_keys, not a Google Gemini API key. Docker default: sk-gemini";
           renderThread();
           showAuthModal("API key required");
         } else {
@@ -710,10 +719,17 @@
         $("input").focus();
         return;
       }
-      if (state.authRequired && !state.apiKey) {
-        state.notice = "Enter the API key first. Docker example: sk-gemini";
+      if (looksGoogleKey(state.apiKey)) {
+        state.notice = GOOGLE_KEY_MSG;
         renderThread();
-        showAuthModal("API key required to send");
+        showAuthModal("Not a Google API key");
+        openSide();
+        return;
+      }
+      if (state.authRequired && !state.apiKey) {
+        state.notice = "Enter the server password first. Docker default: sk-gemini";
+        renderThread();
+        showAuthModal("Server password required to send");
         openSide();
         return;
       }
@@ -866,11 +882,21 @@
         $("side").classList.remove("open");
         $("backdrop").classList.remove("show");
       });
+      $("authExample").addEventListener("click", function () {
+        $("modalKey").value = "sk-gemini";
+        $("apiKey").value = "sk-gemini";
+      });
       $("authSave").addEventListener("click", function () {
         saveKey($("modalKey").value);
+        if (looksGoogleKey(state.apiKey)) {
+          state.notice = GOOGLE_KEY_MSG;
+          $("authHint").className = "hint warn";
+          renderThread();
+          return;
+        }
         hideAuthModal();
         if (state.apiKey) {
-          state.notice = "API key saved. Try sending a message.";
+          state.notice = "Server password saved. Try sending a message.";
           setStatus("ok", "key saved");
           renderThread();
         }

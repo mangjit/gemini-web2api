@@ -201,6 +201,26 @@ class StreamingEndpointTests(unittest.TestCase):
         _, _, body = self.get("/health")
         self.assertFalse(json.loads(body)["auth_required"])
 
+    def test_google_api_key_gets_explicit_401(self):
+        CONFIG["api_keys"] = ["sk-gemini"]
+        status, _, body = self.get(
+            "/v1/models",
+            headers={"Authorization": "Bearer AQ.not-a-google-secret"},
+        )
+        self.assertEqual(status, 401)
+        message = json.loads(body)["error"]["message"]
+        self.assertIn("not Google's Gemini API", message)
+        self.assertIn("sk-gemini", message)
+
+    def test_local_password_is_accepted(self):
+        CONFIG["api_keys"] = ["sk-gemini"]
+        status, _, body = self.get(
+            "/v1/models",
+            headers={"Authorization": "Bearer sk-gemini"},
+        )
+        self.assertEqual(status, 200)
+        self.assertIn("gemini-3.6-flash", body.decode())
+
     def post_json(self, path, payload):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         connection.request(
