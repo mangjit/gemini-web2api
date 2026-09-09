@@ -692,7 +692,9 @@
           showAuthModal("API key required");
         } else {
           setStatus("ok", "v" + (data.version || "1.1.0") + " live");
-          state.notice = "";
+          state.notice = data.cookie_configured
+            ? ""
+            : "No Gemini cookie configured. Anonymous calls from Render IPs are often empty. Set GEMINI_COOKIE or cookie_file, or run this locally.";
           renderThread();
         }
       } catch (err) {
@@ -800,12 +802,17 @@
               if (data === "[DONE]") return;
               try {
                 var json = JSON.parse(data);
+                if (json.error && json.error.message) {
+                  throw new Error(json.error.message);
+                }
                 var delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
                 if (delta) {
                   assistant.content += delta;
                   renderThread();
                 }
-              } catch (e) {}
+              } catch (e) {
+                if (e && e.message && String(e.message).indexOf("upstream error") !== -1) throw e;
+              }
             });
           });
         }

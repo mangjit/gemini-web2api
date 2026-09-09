@@ -14,6 +14,7 @@ DEFAULT_CONFIG = {
     "default_model": "gemini-3.6-flash",
     "log_requests": True,
     "cookie_file": None,
+    "cookie": None,
     "proxy": None,
     "api_keys": [],
     "temporary_chats": False,

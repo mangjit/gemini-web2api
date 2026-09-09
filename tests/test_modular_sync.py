@@ -6,8 +6,10 @@ import unittest
 from unittest import mock
 from urllib.parse import parse_qs
 
+import os
+
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG
-from gemini_web2api.gemini import _build_payload
+from gemini_web2api.gemini import _build_payload, empty_upstream_message, load_cookie
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -44,6 +46,18 @@ class PayloadPersistenceTests(unittest.TestCase):
 
     def test_temporary_chats_default_to_disabled(self):
         self.assertIs(DEFAULT_CONFIG["temporary_chats"], False)
+
+    def test_empty_upstream_message_mentions_render(self):
+        self.assertIn("Render", empty_upstream_message(""))
+        self.assertIn("CAPTCHA", empty_upstream_message("Please complete recaptcha"))
+
+    def test_load_cookie_from_env(self):
+        CONFIG["cookie_file"] = None
+        CONFIG["cookie"] = None
+        with mock.patch.dict(os.environ, {"GEMINI_COOKIE": "SID=abc; SAPISID=xyz"}, clear=False):
+            cookie_str, sapisid = load_cookie()
+        self.assertEqual(cookie_str, "SID=abc; SAPISID=xyz")
+        self.assertEqual(sapisid, "xyz")
 
     def test_persistent_chat_payload(self):
         CONFIG["temporary_chats"] = False
@@ -249,6 +263,21 @@ class StreamingEndpointTests(unittest.TestCase):
         headers = dict(response.getheaders())
         connection.close()
         return response.status, headers, body
+
+    @mock.patch("gemini_web2api.server.generate_stream", side_effect=RuntimeError("blocked by Google"))
+    def test_chat_stream_forwards_upstream_error(self, _generate_stream):
+        status, headers, body = self.post_json(
+            "/v1/chat/completions",
+            {
+                "model": "gemini-3.6-flash",
+                "messages": [{"role": "user", "content": "hello"}],
+                "stream": True,
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "text/event-stream")
+        self.assertIn("blocked by Google", body)
+        self.assertIn('"error"', body)
 
     @mock.patch("gemini_web2api.server.generate_stream")
     def test_chat_stream_starts_with_assistant_role(self, generate_stream):

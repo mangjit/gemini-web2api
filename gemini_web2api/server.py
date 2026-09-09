@@ -64,13 +64,16 @@ class GeminiHandler(BaseHTTPRequestHandler):
         return self.path.split("?", 1)[0]
 
     def _health_payload(self):
+        from .gemini import load_cookie
         keys = CONFIG.get("api_keys") or []
+        cookie_str, _ = load_cookie()
         return {
             "status": "ok",
             "version": __version__,
             "models": list(MODELS.keys()),
             "default_model": CONFIG.get("default_model", "gemini-3.6-flash"),
             "auth_required": bool(keys),
+            "cookie_configured": bool(cookie_str),
         }
 
     def _serve_playground(self):
@@ -206,7 +209,7 @@ class GeminiHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             if self.path.startswith("/v1") and not self._authorized():
-                self.send_json({"error": {"message": "invalid api key"}}, 401)
+                self._send_unauthorized()
                 return
             body = self._read_request_body()
             if self.path == "/v1/chat/completions":
@@ -286,6 +289,19 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 pass
             except Exception as e:
                 log(f"Stream error: {e}")
+                try:
+                    err_text = f"upstream error: {e}"
+                    chunk = {
+                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "error": {"message": err_text},
+                    }
+                    self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode())
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+                except Exception:
+                    pass
             return
 
         try:

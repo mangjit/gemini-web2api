@@ -4,7 +4,7 @@ import os
 
 from .config import CONFIG, load_config, find_config
 from .models import MODELS
-from .gemini import HAS_HTTPX
+from .gemini import HAS_HTTPX, fetch_latest_bl, load_cookie
 from .server import GeminiHandler, ThreadedServer
 from . import __version__
 
@@ -36,6 +36,10 @@ def main():
     if args.proxy:
         CONFIG["proxy"] = args.proxy
 
+    new_bl = fetch_latest_bl()
+    if new_bl:
+        CONFIG["gemini_bl"] = new_bl
+
     port = CONFIG["port"]
     server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
     print(f"gemini-web2api v{__version__}")
@@ -43,10 +47,12 @@ def main():
     print(f"  Playground: http://localhost:{port}/")
     print(f"  Base URL:   http://localhost:{port}/v1")
     print(f"  Models:    {', '.join(MODELS.keys())}")
-    print(f"  Cookie:    {'yes' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
+    cookie_str, _ = load_cookie()
+    print(f"  Cookie:    {'yes' if cookie_str else 'none (anonymous)'}")
     print(f"  Proxy:     {CONFIG.get('proxy') or 'system env'}")
     print(f"  Streaming: {'httpx (true streaming)' if HAS_HTTPX else 'urllib (buffered)'}")
     print(f"  Temporary: {'yes' if CONFIG.get('temporary_chats', False) else 'no'}")
+    print(f"  BL:        {CONFIG['gemini_bl']}")
     print()
     try:
         server.serve_forever()

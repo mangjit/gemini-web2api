@@ -5,6 +5,7 @@ import uuid
 import re
 import urllib.request
 import urllib.parse
+import urllib.error
 import ssl
 import os
 import hashlib
@@ -45,30 +46,48 @@ def _get_httpx_client():
     return _httpx_client
 
 
-def load_cookie() -> tuple:
-    """Load cookie from file with mtime-based caching."""
-    cookie_file = CONFIG.get("cookie_file")
-    if not cookie_file or not os.path.exists(cookie_file):
+def _sapisid_from_cookie(cookie_str: str) -> str:
+    pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
+    return pairs.get("SAPISID") or pairs.get("__Secure-1PSID", "")
+
+
+def _parse_cookie_content(content: str) -> tuple:
+    content = (content or "").strip()
+    if not content:
         return "", None
-    try:
-        mtime = os.path.getmtime(cookie_file)
-        if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
+    if content.startswith("{"):
+        data = json.loads(content)
+        cookie_str = data.get("cookie", "")
+        sapisid = data.get("sapisid", "") or _sapisid_from_cookie(cookie_str)
+        return cookie_str, sapisid or None
+    return content, _sapisid_from_cookie(content) or None
+
+
+def load_cookie() -> tuple:
+    """Load cookie from file, inline config, or GEMINI_COOKIE env."""
+    cookie_file = CONFIG.get("cookie_file")
+    if cookie_file and os.path.exists(cookie_file):
+        try:
+            mtime = os.path.getmtime(cookie_file)
+            if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
+                return _cookie_cache["str"], _cookie_cache["sapisid"]
+            with open(cookie_file, "r") as f:
+                cookie_str, sapisid = _parse_cookie_content(f.read())
+            env_sapisid = os.environ.get("GEMINI_SAPISID")
+            if env_sapisid:
+                sapisid = env_sapisid
+            _cookie_cache.update({"str": cookie_str, "sapisid": sapisid or None, "mtime": mtime})
+            return cookie_str, sapisid if sapisid else None
+        except Exception as e:
+            log(f"Cookie load error: {e}")
             return _cookie_cache["str"], _cookie_cache["sapisid"]
-        with open(cookie_file, "r") as f:
-            content = f.read().strip()
-        if content.startswith("{"):
-            data = json.loads(content)
-            cookie_str = data.get("cookie", "")
-            sapisid = data.get("sapisid", "")
-        else:
-            cookie_str = content
-            pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
-            sapisid = pairs.get("SAPISID", "")
-        _cookie_cache.update({"str": cookie_str, "sapisid": sapisid or None, "mtime": mtime})
-        return cookie_str, sapisid if sapisid else None
-    except Exception as e:
-        log(f"Cookie load error: {e}")
-        return _cookie_cache["str"], _cookie_cache["sapisid"]
+
+    inline = os.environ.get("GEMINI_COOKIE") or CONFIG.get("cookie") or ""
+    cookie_str, sapisid = _parse_cookie_content(inline)
+    env_sapisid = os.environ.get("GEMINI_SAPISID")
+    if env_sapisid:
+        sapisid = env_sapisid
+    return cookie_str, sapisid if sapisid else None
 
 
 def make_sapisidhash(sapisid: str) -> str:
@@ -189,6 +208,66 @@ def _extract_texts_from_line(line: str) -> list:
         return []
 
 
+
+def fetch_latest_bl():
+    """Fetch the latest gemini_bl from gemini.google.com."""
+    try:
+        req = urllib.request.Request(
+            "https://gemini.google.com/app",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
+        ctx = _get_ssl_ctx()
+        proxy = CONFIG.get("proxy")
+        if proxy:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+                urllib.request.HTTPSHandler(context=ctx),
+            )
+            resp = opener.open(req, timeout=15)
+        else:
+            resp = urllib.request.urlopen(req, context=ctx, timeout=15)
+        html = resp.read().decode("utf-8", errors="replace")
+        m = re.search(r"(boq_assistant-bard-web-server_\d+\.\d+_p\d+)", html)
+        if m:
+            return m.group(1)
+    except Exception as e:
+        log(f"BL auto-update fetch failed: {e}")
+    return None
+
+
+def update_bl_if_needed() -> bool:
+    new_bl = fetch_latest_bl()
+    if new_bl and new_bl != CONFIG["gemini_bl"]:
+        log(f"BL auto-updated: {CONFIG['gemini_bl']} -> {new_bl}")
+        CONFIG["gemini_bl"] = new_bl
+        return True
+    return False
+
+
+def empty_upstream_message(raw: str = "") -> str:
+    blob = (raw or "").lower()
+    if "recaptcha" in blob or "captcha" in blob:
+        return (
+            "Gemini served a CAPTCHA. Datacenter IPs (Render/Fly/Docker) are often blocked. "
+            "Run this on your home computer, or set GEMINI_COOKIE / cookie_file and a residential proxy."
+        )
+    if "accounts.google.com" in blob or "sign in" in blob or "signin" in blob:
+        return (
+            "Gemini redirected to login. Anonymous access from this IP is blocked. "
+            "Set GEMINI_COOKIE or cookie_file to a gemini.google.com cookie string."
+        )
+    if blob.lstrip().startswith("<!doctype") or blob.lstrip().startswith("<html"):
+        return (
+            "Gemini returned an HTML page instead of a chat stream (blocked or login wall). "
+            "Render IPs are commonly blocked. Run locally or add cookies + proxy."
+        )
+    return (
+        "Gemini returned no text. Google often blocks Render/Docker datacenter IPs for "
+        "anonymous web access. Run gemini-web2api on your own computer, or set "
+        "GEMINI_COOKIE / cookie_file (and optionally a proxy) in config.json."
+    )
+
+
 def extract_response_text(raw: str) -> str:
     """Parse full response to get final text."""
     bard_err = re.search(r'BardErrorInfo\s*\[(\d+)\]', raw)
@@ -223,7 +302,19 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             else:
                 resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
             raw = resp.read().decode("utf-8", errors="replace")
-            return extract_response_text(raw)
+            text = extract_response_text(raw)
+            if not text:
+                raise RuntimeError(empty_upstream_message(raw))
+            return text
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 405 and update_bl_if_needed():
+                url = _get_url()
+                log("Retrying with updated BL...")
+                continue
+            if attempt < CONFIG["retry_attempts"] - 1:
+                log(f"Retry {attempt+1}/{CONFIG['retry_attempts']}: {e}")
+                time.sleep(CONFIG["retry_delay_sec"])
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
@@ -248,10 +339,14 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
     last_err = None
     emitted_raw_text = ""
     for attempt in range(CONFIG["retry_attempts"]):
+        buf = ""
         try:
             with client.stream("POST", url, content=body, headers=headers) as resp:
+                if resp.status_code == 405 and update_bl_if_needed():
+                    url = _get_url()
+                    log("Retrying stream with updated BL...")
+                    continue
                 resp.raise_for_status()
-                buf = ""
                 for chunk in resp.iter_text():
                     buf += chunk
                     if "BardErrorInfo" in buf:
@@ -271,6 +366,8 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                             emitted_raw_text = t
                             if delta:
                                 yield delta
+            if not emitted_raw_text:
+                raise RuntimeError(empty_upstream_message(buf))
             return
         except Exception as e:
             last_err = e
