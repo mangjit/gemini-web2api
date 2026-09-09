@@ -1,21 +1,25 @@
 """Multimodal: Scotty resumable upload for Gemini image input."""
-import json
-import base64
 import urllib.request
-import urllib.parse
 import time
-import ssl
 import re
 from urllib.parse import urlparse
 
 from .config import CONFIG
 from .gemini import load_cookie, make_sapisidhash, _get_ssl_ctx, log
 
+UPLOAD_HOSTS = (
+    "https://push.clients6.google.com/upload/",
+    "https://content-push.googleapis.com/upload/",
+)
+
 
 def _get_page_tokens() -> dict:
     """Fetch WIZ_global_data tokens from Gemini page (Push-ID, X-Client-Pctx)."""
     headers = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Origin": "https://gemini.google.com",
+        "Referer": "https://gemini.google.com/app",
     }
     cookie_str, sapisid = load_cookie()
     if cookie_str:
@@ -33,12 +37,12 @@ def _get_page_tokens() -> dict:
             resp = opener.open(req, timeout=30)
         else:
             resp = urllib.request.urlopen(req, context=_get_ssl_ctx(), timeout=30)
-        html = resp.read().decode()
+        html = resp.read().decode("utf-8", errors="replace")
         tokens = {}
         for key, pattern in [
             ("push_id", r'"qKIAYe":"([^"]+)"'),
             ("pctx", r'"Ylro7b":"([^"]+)"'),
-            ("at", r'"thykhd":"([^"]+)"'),
+            ("at", r'"SNlM0e":"([^"]+)"'),
         ]:
             m = re.search(pattern, html)
             if m:
@@ -85,70 +89,103 @@ def detect_image_mime(image_bytes: bytes, fallback: str = "image/png") -> str:
     return fallback
 
 
+def _sanitize_upload_name(filename: str) -> str:
+    name = (filename or "").replace("\r", "").replace("\n", "").strip()
+    return name or "image.png"
+
+
+def _upload_opener(ctx, proxy):
+    if proxy:
+        return urllib.request.build_opener(
+            urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+            urllib.request.HTTPSHandler(context=ctx),
+        )
+    return None
+
+
+def _post(url, data, headers, ctx, opener, timeout):
+    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+    if opener:
+        return opener.open(req, timeout=timeout)
+    return urllib.request.urlopen(req, context=ctx, timeout=timeout)
+
+
 def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str = "image/png") -> str:
     """Upload image via Scotty resumable upload. Returns file reference path."""
-    tokens = _cached_page_tokens()
-    push_id = tokens.get("push_id", "feeds/mcudyrk2a4khkz")
-    pctx = tokens.get("pctx", "CgcSBWjK7pYx")
-
     cookie_str, sapisid = load_cookie()
+    if not cookie_str:
+        raise RuntimeError(
+            "Image input needs a gemini.google.com cookie. Anonymous uploads can succeed "
+            "but Gemini rejects them in chat (error 1100). Set GEMINI_COOKIE or paste the "
+            "cookie in the playground sidebar."
+        )
+
+    tokens = _cached_page_tokens()
+    push_id = tokens.get("push_id") or ""
+    pctx = tokens.get("pctx") or ""
+    if not push_id:
+        raise RuntimeError(
+            "Could not read Gemini upload tokens from gemini.google.com/app. "
+            "Refresh GEMINI_COOKIE from a signed-in gemini.google.com session."
+        )
+
+    filename = _sanitize_upload_name(filename)
     ctx = _get_ssl_ctx()
     proxy = CONFIG.get("proxy")
+    opener = _upload_opener(ctx, proxy)
 
-    # Step 1: Initiate resumable upload
-    start_headers = {
-        "Push-ID": push_id,
+    base_headers = {
+        "Origin": "https://gemini.google.com",
+        "Referer": "https://gemini.google.com/",
         "X-Tenant-Id": "bard-storage",
-        "X-Client-Pctx": pctx,
-        "X-Goog-Upload-Header-Content-Length": str(len(image_bytes)),
-        "X-Goog-Upload-Header-Content-Type": mime_type,
+        "Push-ID": push_id,
+        "Accept": "*/*",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        "Cookie": cookie_str,
+    }
+    if pctx:
+        base_headers["X-Client-Pctx"] = pctx
+    if sapisid:
+        base_headers["Authorization"] = make_sapisidhash(sapisid)
+
+    start_headers = dict(base_headers)
+    start_headers.update({
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         "X-Goog-Upload-Protocol": "resumable",
         "X-Goog-Upload-Command": "start",
-        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    }
-    if cookie_str:
-        start_headers["Cookie"] = cookie_str
-    if sapisid:
-        start_headers["Authorization"] = make_sapisidhash(sapisid)
+        "X-Goog-Upload-Header-Content-Length": str(len(image_bytes)),
+    })
+    start_body = f"File name: {filename}".encode()
 
-    start_url = "https://content-push.googleapis.com/upload/"
-    req = urllib.request.Request(start_url, data=b"", headers=start_headers, method="POST")
-
-    if proxy:
-        opener = urllib.request.build_opener(
-            urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
-            urllib.request.HTTPSHandler(context=ctx)
-        )
-        resp = opener.open(req, timeout=30)
-    else:
-        resp = urllib.request.urlopen(req, context=ctx, timeout=30)
-
-    upload_url = resp.headers.get("X-Goog-Upload-URL") or resp.headers.get("x-goog-upload-url")
+    last_err = None
+    upload_url = None
+    for host in UPLOAD_HOSTS:
+        try:
+            resp = _post(host, start_body, start_headers, ctx, opener, 30)
+            upload_url = resp.headers.get("X-Goog-Upload-URL") or resp.headers.get("x-goog-upload-url")
+            if upload_url:
+                break
+            last_err = RuntimeError(f"No upload URL in response headers from {host}")
+        except Exception as e:
+            last_err = e
+            log(f"Upload start via {host} failed: {e}")
     if not upload_url:
-        raise RuntimeError(f"No upload URL in response headers: {dict(resp.headers)}")
+        raise RuntimeError(f"Image upload start failed: {last_err}")
 
     log(f"Upload session started: {upload_url[:80]}...")
 
-    # Step 2: Upload file data + finalize
-    upload_headers = {
+    upload_headers = dict(base_headers)
+    upload_headers.update({
+        "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
         "X-Goog-Upload-Command": "upload, finalize",
         "X-Goog-Upload-Offset": "0",
-        "Content-Type": "application/octet-stream",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    }
-
-    req2 = urllib.request.Request(upload_url, data=image_bytes, headers=upload_headers, method="POST")
-    if proxy:
-        resp2 = opener.open(req2, timeout=60)
-    else:
-        resp2 = urllib.request.urlopen(req2, context=ctx, timeout=60)
-
-    file_ref = resp2.read().decode().strip()
+    })
+    resp2 = _post(upload_url, image_bytes, upload_headers, ctx, opener, 60)
+    file_ref = resp2.read().decode("utf-8", errors="replace").strip()
     if not file_ref or not file_ref.startswith("/"):
         raise RuntimeError(f"Invalid file reference: {file_ref[:100]}")
 
-    log(f"Image uploaded: {filename} -> {file_ref[:50]}...")
+    log(f"Image uploaded: {filename} ({mime_type}) -> {file_ref[:50]}...")
     return file_ref
 
 

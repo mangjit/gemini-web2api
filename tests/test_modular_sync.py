@@ -17,6 +17,7 @@ from gemini_web2api.gemini import (
     normalize_cookie,
     set_request_cookie,
 )
+from gemini_web2api.multimodal import upload_image
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -71,6 +72,15 @@ class PayloadPersistenceTests(unittest.TestCase):
         self.assertIn("__Secure-1PSID=psid", repaired)
         self.assertNotIn("**Secure-", repaired)
 
+    def test_upload_image_requires_cookie(self):
+        CONFIG["cookie_file"] = None
+        CONFIG["cookie"] = None
+        clear_request_cookie()
+        with mock.patch.dict(os.environ, {"GEMINI_COOKIE": "", "GEMINI_SAPISID": ""}, clear=False):
+            with self.assertRaises(RuntimeError) as ctx:
+                upload_image(b"\x89PNG\r\n\x1a\n", "x.png", "image/png")
+        self.assertIn("cookie", str(ctx.exception).lower())
+
     def test_request_cookie_overrides_env(self):
         CONFIG["cookie_file"] = None
         CONFIG["cookie"] = None
@@ -103,7 +113,27 @@ class PayloadPersistenceTests(unittest.TestCase):
         inner = _decode_payload(_build_payload("describe", 1, 4, ["/uploaded/image-ref"]))
 
         self.assertEqual(inner[0][0], "describe")
-        self.assertEqual(inner[0][3], [[None, None, "/uploaded/image-ref"]])
+        self.assertEqual(
+            inner[0][3],
+            [[["/uploaded/image-ref", 1, None, "image/png"], "image.png", None, None, None, None, None, None, [0]]],
+        )
+
+    def test_payload_includes_image_ref_dict(self):
+        inner = _decode_payload(_build_payload("describe", 1, 4, [{
+            "ref": "/contrib_service/ttl_1d/abc",
+            "name": "photo.jpg",
+            "mime": "image/jpeg",
+            "kind": 1,
+        }]))
+        self.assertEqual(
+            inner[0][3][0][:2],
+            [["/contrib_service/ttl_1d/abc", 1, None, "image/jpeg"], "photo.jpg"],
+        )
+
+    def test_empty_upstream_image_message(self):
+        msg = empty_upstream_message("", has_files=True)
+        self.assertIn("image", msg.lower())
+        self.assertIn("cookie", msg.lower())
 
 
 class MessageParsingTests(unittest.TestCase):
@@ -403,7 +433,12 @@ class StreamingEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         upload_image.assert_called_once_with(b"fake png", "image.png", "image/png")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/image-ref"])
+        self.assertEqual(generate.call_args.args[3], [{
+            "ref": "/uploaded/image-ref",
+            "name": "image.png",
+            "mime": "image/png",
+            "kind": 1,
+        }])
         self.assertIn("[Image attached]", generate.call_args.args[0])
         self.assertEqual(json.loads(body)["choices"][0]["message"]["content"], "looks good")
 
@@ -431,7 +466,12 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         fetch_image_bytes.assert_called_once_with("https://example.com/image.jpg")
         upload_image.assert_called_once_with(b"\xff\xd8\xffremote jpeg", "image.png", "image/jpeg")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/remote-ref"])
+        self.assertEqual(generate.call_args.args[3], [{
+            "ref": "/uploaded/remote-ref",
+            "name": "image.png",
+            "mime": "image/jpeg",
+            "kind": 1,
+        }])
         self.assertIn("[Image attached]", generate.call_args.args[0])
 
     @mock.patch("gemini_web2api.server.upload_image", return_value="/uploaded/image-ref")
@@ -455,7 +495,12 @@ class StreamingEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         upload_image.assert_called_once_with(b"fake png", "image.png", "image/png")
-        self.assertEqual(generate.call_args.args[3], ["/uploaded/image-ref"])
+        self.assertEqual(generate.call_args.args[3], [{
+            "ref": "/uploaded/image-ref",
+            "name": "image.png",
+            "mime": "image/png",
+            "kind": 1,
+        }])
         self.assertIn("What is shown?", generate.call_args.args[0])
         self.assertIn("[Image attached]", generate.call_args.args[0])
 

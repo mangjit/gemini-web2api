@@ -168,10 +168,32 @@ def _apply_chat_persistence_flags(inner: list) -> None:
         inner[41] = [2]
 
 
+def _attachment_entries(file_refs: list) -> list:
+    """Build inner[0][3] in the current Gemini Web shape.
+
+    Browser capture: [[[path, kind, null, mime], filename, null×6, [0]], ...]
+    kind 1 = image. The old [[null, null, path]] shape is ignored upstream,
+    which produced empty replies for image chats.
+    """
+    entries = []
+    for item in file_refs or []:
+        if isinstance(item, dict):
+            ref = item.get("ref") or item.get("path") or ""
+            name = item.get("name") or item.get("filename") or "image.png"
+            mime = item.get("mime") or item.get("mime_type") or "image/png"
+            kind = int(item.get("kind") or 1)
+        else:
+            ref, name, mime, kind = item, "image.png", "image/png", 1
+        if not ref:
+            continue
+        entries.append([[ref, kind, None, mime], name, None, None, None, None, None, None, [0]])
+    return entries
+
+
 def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     inner = [None] * 102
-    if file_refs:
-        refs = [[None, None, ref] for ref in file_refs]
+    refs = _attachment_entries(file_refs)
+    if refs:
         inner[0] = [prompt, 0, None, refs, None, None, 0]
     else:
         inner[0] = [prompt, 0, None, None, None, None, 0]
@@ -279,8 +301,15 @@ def update_bl_if_needed() -> bool:
     return False
 
 
-def empty_upstream_message(raw: str = "") -> str:
+def empty_upstream_message(raw: str = "", has_files: bool = False) -> str:
     blob = (raw or "").lower()
+    if has_files or "1100" in (raw or ""):
+        return (
+            "Gemini returned no text for this image. Image chat needs a signed-in "
+            "gemini.google.com cookie (anonymous uploads are rejected). "
+            "Set GEMINI_COOKIE or paste the cookie in the playground. "
+            "If plain text chat already works, refresh the cookie from gemini.google.com and try a smaller PNG/JPEG."
+        )
     if "recaptcha" in blob or "captcha" in blob:
         return (
             "Gemini served a CAPTCHA. Datacenter IPs (Render/Fly/Docker) are often blocked. "
@@ -339,7 +368,7 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             raw = resp.read().decode("utf-8", errors="replace")
             text = extract_response_text(raw)
             if not text:
-                raise RuntimeError(empty_upstream_message(raw))
+                raise RuntimeError(empty_upstream_message(raw, has_files=bool(file_refs)))
             return text
         except urllib.error.HTTPError as e:
             last_err = e
@@ -402,7 +431,7 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                             if delta:
                                 yield delta
             if not emitted_raw_text:
-                raise RuntimeError(empty_upstream_message(buf))
+                raise RuntimeError(empty_upstream_message(buf, has_files=bool(file_refs)))
             return
         except Exception as e:
             last_err = e

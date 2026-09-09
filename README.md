@@ -340,7 +340,7 @@ resp = client.chat.completions.create(
 
 ## Limitations
 
-- **Image upload may require cookies**: Multimodal input uses Gemini Web's image upload endpoint. If anonymous upload fails, configure a Gemini cookie.
+- **Image chat requires a cookie**: Gemini rejects anonymous image attachments. Set `GEMINI_COOKIE` (or the playground cookie field). Text-only chat can work without it; images cannot.
 - **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.
