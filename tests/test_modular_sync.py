@@ -218,6 +218,8 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b'id="attachBtn"', body)
         self.assertIn(b'id="input"', body)
         self.assertIn(b'id="geminiCookie"', body)
+        self.assertIn(b'id="chatList"', body)
+        self.assertIn(b'id="exportChats"', body)
         self.assertIn(b"sk-gemini", body)
         self.assertNotIn(b'id="<pre', body)
         self.assertNotIn(b"ro/textarea", body)

@@ -193,6 +193,8 @@ Visiting the server root (`/`) opens a chat UI that talks to `/v1/chat/completio
 
 If `api_keys` is set in `config.json`, paste a key in the sidebar. The Docker example config uses `sk-gemini`.
 
+The playground keeps previous threads in the **Chats** list (this browser’s local storage). **New chat** starts a blank thread without deleting the old one. Use **Export** to download `gemini-web2api-chats.json` and put that file in Google Drive or any folder; **Import** restores it.
+
 Point OpenAI-compatible clients at:
 
 | Field | Value |

@@ -126,6 +126,19 @@
       font-weight: 600;
     }
     .side h2:first-child { margin-top: 4px; }
+    .chat-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .chat-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; max-height: 280px; overflow: auto; }
+    .chat-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      border: 1px solid var(--line); background: #0a101c;
+      border-radius: 12px; padding: 8px 10px; text-align: left;
+    }
+    .chat-item.active { border-color: rgba(106, 162, 255, .55); background: var(--accent-dim); }
+    .chat-item-body { flex: 1; min-width: 0; }
+    .chat-item-body b { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-item-body span { font-size: 10px; color: var(--faint); }
+    .chat-item .del { border: 0; background: none; color: var(--faint); padding: 0 4px; font-size: 14px; }
+    .chat-item .del:hover { color: var(--danger); }
     .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
     .field label { font-size: 12px; color: var(--muted); }
     .field input, .field textarea {
@@ -373,6 +386,15 @@
     </header>
 
     <aside class="side" id="side">
+      <h2>Chats</h2>
+      <div class="chat-toolbar">
+        <button class="ghost" id="newChatSide" type="button">New chat</button>
+        <button class="ghost" id="exportChats" type="button">Export</button>
+        <button class="ghost" id="importChatsBtn" type="button">Import</button>
+      </div>
+      <div class="hint">Previous chats stay in this list. Stored in this browser. Export JSON to keep a copy in Google Drive or any folder.</div>
+      <div class="chat-list" id="chatList"></div>
+
       <h2>Connection</h2>
       <div class="copy-row"><code id="baseUrl"></code><button class="ghost mini" type="button" data-copy="base">Copy</button></div>
       <div class="field">
@@ -428,6 +450,7 @@
   </div>
   <div class="backdrop" id="backdrop"></div>
   <input type="file" id="file" accept="image/*" hidden multiple>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
 
   <div class="modal" id="authModal" role="dialog" aria-labelledby="authTitle">
     <div class="modal-card">
@@ -565,6 +588,239 @@
     function messageText(m) {
       if (typeof m.content === "string") return m.content;
       return (m.content || []).filter(function (p) { return p.type === "text"; }).map(function (p) { return p.text; }).join("\n");
+    }
+
+    function uid() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    function formatWhen(ts) {
+      if (!ts) return "";
+      var d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    function stripPending(messages) {
+      return (messages || []).map(function (m) {
+        var copy = {
+          role: m.role,
+          content: m.content
+        };
+        if (m.error) copy.error = m.error;
+        return copy;
+      });
+    }
+
+    function chatTitleFromMessages(messages) {
+      var first = (messages || []).filter(function (m) { return m.role === "user"; })[0];
+      var text = first ? messageText(first) : "";
+      text = String(text || "").replace(/\s+/g, " ").trim();
+      if (!text) return "New chat";
+      return text.length > 48 ? text.slice(0, 48) + "…" : text;
+    }
+
+    function currentChat() {
+      for (var i = 0; i < state.chats.length; i++) {
+        if (state.chats[i].id === state.activeId) return state.chats[i];
+      }
+      return null;
+    }
+
+    function persistChats() {
+      var payload = JSON.stringify({
+        activeId: state.activeId,
+        chats: state.chats.map(function (c) {
+          return {
+            id: c.id,
+            title: c.title || "New chat",
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            model: c.model || state.model,
+            messages: stripPending(c.messages || [])
+          };
+        })
+      });
+      try {
+        window.localStorage.setItem(CHATS_KEY, payload);
+        return;
+      } catch (e) {}
+      try {
+        var slim = JSON.parse(payload);
+        slim.chats.forEach(function (c) {
+          c.messages = (c.messages || []).map(function (m) {
+            if (typeof m.content !== "object") return m;
+            return {
+              role: m.role,
+              error: m.error,
+              content: (m.content || []).map(function (p) {
+                if (p && p.type === "image_url") return { type: "text", text: "[image omitted from local backup]" };
+                return p;
+              })
+            };
+          });
+        });
+        window.localStorage.setItem(CHATS_KEY, JSON.stringify(slim));
+      } catch (e2) {}
+    }
+
+    function saveCurrentChat() {
+      var chat = currentChat();
+      if (!chat) return;
+      chat.messages = stripPending(state.messages);
+      chat.updatedAt = Date.now();
+      chat.model = state.model;
+      if (state.messages.length) chat.title = chatTitleFromMessages(state.messages);
+      persistChats();
+      renderChatList();
+    }
+
+    function hydrateChats() {
+      var parsed = null;
+      try { parsed = JSON.parse(storageGet(CHATS_KEY) || "null"); } catch (e) { parsed = null; }
+      if (parsed && Array.isArray(parsed.chats)) {
+        state.chats = parsed.chats;
+        state.activeId = parsed.activeId || "";
+      } else if (Array.isArray(parsed)) {
+        state.chats = parsed;
+      } else {
+        state.chats = [];
+      }
+      if (!state.chats.length) {
+        var blank = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+        state.chats = [blank];
+        state.activeId = blank.id;
+      }
+      var cur = currentChat() || state.chats[0];
+      state.activeId = cur.id;
+      state.messages = stripPending(cur.messages || []);
+      persistChats();
+    }
+
+    function startNewChat() {
+      saveCurrentChat();
+      var cur = currentChat();
+      if (cur && !(cur.messages || []).length && !state.messages.length) {
+        state.notice = "";
+        renderThread();
+        $("input").focus();
+        return;
+      }
+      var chat = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+      state.chats.unshift(chat);
+      state.activeId = chat.id;
+      state.messages = [];
+      state.notice = "";
+      persistChats();
+      renderChatList();
+      renderThread();
+      $("input").focus();
+    }
+
+    function openChat(id) {
+      if (id === state.activeId) return;
+      saveCurrentChat();
+      var chat = null;
+      for (var i = 0; i < state.chats.length; i++) {
+        if (state.chats[i].id === id) chat = state.chats[i];
+      }
+      if (!chat) return;
+      state.activeId = id;
+      state.messages = stripPending(chat.messages || []);
+      state.notice = "";
+      persistChats();
+      renderChatList();
+      renderThread();
+    }
+
+    function deleteChat(id) {
+      state.chats = state.chats.filter(function (c) { return c.id !== id; });
+      if (!state.chats.length) {
+        var blank = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+        state.chats = [blank];
+        state.activeId = blank.id;
+        state.messages = [];
+      } else if (state.activeId === id) {
+        state.activeId = state.chats[0].id;
+        state.messages = stripPending(state.chats[0].messages || []);
+      }
+      persistChats();
+      renderChatList();
+      renderThread();
+    }
+
+    function renderChatList() {
+      var list = $("chatList");
+      if (!list) return;
+      if (!state.chats.length) {
+        list.innerHTML = '<div class="hint">No saved chats yet.</div>';
+        return;
+      }
+      list.innerHTML = state.chats.map(function (c) {
+        var active = c.id === state.activeId ? " active" : "";
+        return '<div class="chat-item' + active + '" data-chat="' + escapeHtml(c.id) + '">' +
+          '<div class="chat-item-body"><b>' + escapeHtml(c.title || "New chat") + "</b><span>" +
+          escapeHtml(formatWhen(c.updatedAt || c.createdAt)) + "</span></div>" +
+          '<button class="del" type="button" data-del="' + escapeHtml(c.id) + '" aria-label="Delete chat">×</button></div>';
+      }).join("");
+      list.querySelectorAll("[data-chat]").forEach(function (el) {
+        el.addEventListener("click", function (e) {
+          if (e.target && e.target.getAttribute("data-del")) return;
+          openChat(el.getAttribute("data-chat"));
+        });
+      });
+      list.querySelectorAll("[data-del]").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          deleteChat(btn.getAttribute("data-del"));
+        });
+      });
+    }
+
+    function exportChats() {
+      saveCurrentChat();
+      var blob = new Blob([JSON.stringify({
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        chats: state.chats
+      }, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "gemini-web2api-chats.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }
+
+    function importChatsFile(file) {
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(reader.result);
+          var incoming = Array.isArray(data) ? data : (data.chats || []);
+          if (!incoming.length) throw new Error("No chats in file");
+          saveCurrentChat();
+          incoming.forEach(function (c) {
+            state.chats.unshift({
+              id: uid(),
+              title: c.title || chatTitleFromMessages(c.messages || []),
+              messages: stripPending(c.messages || []),
+              createdAt: c.createdAt || Date.now(),
+              updatedAt: c.updatedAt || Date.now(),
+              model: c.model || state.model
+            });
+          });
+          persistChats();
+          renderChatList();
+          state.notice = "Imported " + incoming.length + " chat(s). Previous threads are still in the list.";
+          renderThread();
+        } catch (err) {
+          state.notice = "Could not import chats: " + String(err && err.message || err);
+          renderThread();
+        }
+      };
+      reader.readAsText(file);
     }
 
     function renderThread() {
@@ -764,6 +1020,7 @@
       $("input").value = "";
       autoGrow();
       state.messages.push({ role: "assistant", content: "", pending: true });
+      saveCurrentChat();
       renderThread();
       await streamLast();
     }
@@ -854,6 +1111,7 @@
       } finally {
         state.abort = null;
         setStreamingUi(false);
+        saveCurrentChat();
       }
     }
 
@@ -870,7 +1128,15 @@
       $("apiKey").addEventListener("input", function (e) { saveKey(e.target.value); });
       $("saveKey").addEventListener("click", function () {
         saveKey($("apiKey").value);
-        state.notice = state.apiKey ? "API key saved. Try sending a message." : "Key cleared.";
+        state.notice = state.apiKey ? "Server password saved. Try sending a message." : "Password cleared.";
+        renderThread();
+      });
+      $("geminiCookie").addEventListener("input", function (e) { saveCookie(e.target.value); });
+      $("saveCookie").addEventListener("click", function () {
+        saveCookie($("geminiCookie").value);
+        state.notice = state.geminiCookie
+          ? "Gemini cookie saved in this browser. Also add GEMINI_COOKIE in the Render Environment tab so other clients work."
+          : "Cookie cleared.";
         renderThread();
       });
       $("toggleKey").addEventListener("click", function () {
@@ -898,12 +1164,16 @@
       });
       $("sendBtn").addEventListener("click", function (e) { e.preventDefault(); send(); });
       $("stopBtn").addEventListener("click", function () { if (state.abort) state.abort.abort(); });
-      $("newChat").addEventListener("click", function () {
-        state.messages = [];
-        state.notice = "";
-        renderThread();
-        $("input").focus();
+      $("newChat").addEventListener("click", startNewChat);
+      $("newChatSide").addEventListener("click", startNewChat);
+      $("exportChats").addEventListener("click", exportChats);
+      $("importChatsBtn").addEventListener("click", function () { $("importFile").click(); });
+      $("importFile").addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        importChatsFile(file);
+        e.target.value = "";
       });
+      window.addEventListener("beforeunload", saveCurrentChat);
       $("attachBtn").addEventListener("click", function () { $("file").click(); });
       $("file").addEventListener("change", function (e) {
         Array.prototype.slice.call(e.target.files || []).forEach(addImageFile);
@@ -950,21 +1220,11 @@
     }
 
     try {
+      hydrateChats();
       bind();
       setModels(FALLBACK_MODELS);
       updateSnippet();
-      renderThread();
-      loadHealth();
-    } catch (err) {
-      setStatus("bad", "ui error");
-      document.body.insertAdjacentHTML("afterbegin", '<div class="error-card" style="margin:16px">' + escapeHtml(String(err && err.message || err)) + "</div>");
-    }
-  })();
-  </script>
-</body>
-</html>
-ACK_MODELS);
-      updateSnippet();
+      renderChatList();
       renderThread();
       loadHealth();
     } catch (err) {
