@@ -176,6 +176,8 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn("text/html", headers["Content-Type"])
         self.assertIn(b"gemini-web2api", body)
         self.assertIn(b"/v1/chat/completions", body)
+        self.assertIn(b'id="modelSelect"', body)
+        self.assertIn(b"sk-gemini", body)
 
     def test_playground_does_not_require_api_key(self):
         CONFIG["api_keys"] = ["secret"]
