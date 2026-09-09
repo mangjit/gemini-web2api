@@ -210,6 +210,31 @@ Point OpenAI-compatible clients at:
 3. The process listens on `0.0.0.0` and reads Render's `PORT` env var automatically.
 4. After deploy, open the service URL — you should see the playground, not raw JSON.
 5. Health check path: `/health`.
+
+### Keep-alive cron URL
+
+Render’s free web service sleeps after idle time. Ping **GET** this URL every 5–10 minutes:
+
+```
+https://YOUR-SERVICE.onrender.com/health
+```
+
+Example (this deploy):
+
+```
+https://gemini-web2api-be17.onrender.com/health
+```
+
+Paste that into [cron-job.org](https://cron-job.org), UptimeRobot, or EasyCron:
+
+| Field | Value |
+|-------|-------|
+| URL | `https://gemini-web2api-be17.onrender.com/health` |
+| Method | GET |
+| Interval | every 10 minutes |
+| Auth | none (`/health` is public) |
+
+This repo also has `.github/workflows/keep-alive.yml` (every 10 minutes). Optional GitHub secret `HEALTH_URL` overrides the default. Enable Actions on the repo, or run the workflow manually once to test.
 6. In the Render dashboard → **Environment**, add `GEMINI_COOKIE` (the blueprint leaves it blank on purpose). Value is a `gemini.google.com` cookie string, for example:
 
 ```

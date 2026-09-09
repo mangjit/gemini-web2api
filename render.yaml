@@ -6,6 +6,8 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python -m gemini_web2api
     healthCheckPath: /health
+    # Keep-alive is not a Render cron (paid). Ping GET /health every 10 minutes
+    # from cron-job.org or .github/workflows/keep-alive.yml instead.
     envVars:
       # Paste a gemini.google.com cookie string in the Render dashboard.
       # Do not put the real value in this file.
