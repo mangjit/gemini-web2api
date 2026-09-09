@@ -9,7 +9,14 @@ from urllib.parse import parse_qs
 import os
 
 from gemini_web2api.config import CONFIG, DEFAULT_CONFIG
-from gemini_web2api.gemini import _build_payload, empty_upstream_message, load_cookie
+from gemini_web2api.gemini import (
+    _build_payload,
+    clear_request_cookie,
+    empty_upstream_message,
+    load_cookie,
+    normalize_cookie,
+    set_request_cookie,
+)
 from gemini_web2api.server import GeminiHandler, ThreadedServer
 from gemini_web2api.tools import google_contents_to_prompt, messages_to_prompt
 
@@ -58,6 +65,23 @@ class PayloadPersistenceTests(unittest.TestCase):
             cookie_str, sapisid = load_cookie()
         self.assertEqual(cookie_str, "SID=abc; SAPISID=xyz")
         self.assertEqual(sapisid, "xyz")
+
+    def test_normalize_markdown_secure_cookie(self):
+        repaired = normalize_cookie("SID=abc; **Secure-1PSID=psid; SAPISID=xyz")
+        self.assertIn("__Secure-1PSID=psid", repaired)
+        self.assertNotIn("**Secure-", repaired)
+
+    def test_request_cookie_overrides_env(self):
+        CONFIG["cookie_file"] = None
+        CONFIG["cookie"] = None
+        try:
+            set_request_cookie("SID=req; SAPISID=fromreq")
+            with mock.patch.dict(os.environ, {"GEMINI_COOKIE": "SID=abc; SAPISID=xyz"}, clear=False):
+                cookie_str, sapisid = load_cookie()
+            self.assertEqual(sapisid, "fromreq")
+            self.assertIn("SID=req", cookie_str)
+        finally:
+            clear_request_cookie()
 
     def test_persistent_chat_payload(self):
         CONFIG["temporary_chats"] = False
@@ -191,7 +215,12 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b"gemini-web2api", body)
         self.assertIn(b"/v1/chat/completions", body)
         self.assertIn(b'id="modelSelect"', body)
+        self.assertIn(b'id="attachBtn"', body)
+        self.assertIn(b'id="input"', body)
+        self.assertIn(b'id="geminiCookie"', body)
         self.assertIn(b"sk-gemini", body)
+        self.assertNotIn(b'id="<pre', body)
+        self.assertNotIn(b"ro/textarea", body)
 
     def test_playground_does_not_require_api_key(self):
         CONFIG["api_keys"] = ["secret"]
@@ -235,13 +264,16 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("gemini-3.6-flash", body.decode())
 
-    def post_json(self, path, payload):
+    def post_json(self, path, payload, extra_headers=None):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        headers = {"Content-Type": "application/json"}
+        if extra_headers:
+            headers.update(extra_headers)
         connection.request(
             "POST",
             path,
             body=json.dumps(payload),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
         )
         response = connection.getresponse()
         body = response.read().decode()
@@ -263,6 +295,32 @@ class StreamingEndpointTests(unittest.TestCase):
         headers = dict(response.getheaders())
         connection.close()
         return response.status, headers, body
+
+    def test_x_gemini_cookie_header_is_used(self):
+        CONFIG["cookie_file"] = None
+        CONFIG["cookie"] = None
+
+        def fake_generate(*_args, **_kwargs):
+            cookie_str, sapisid = load_cookie()
+            self.assertEqual(sapisid, "fromheader")
+            self.assertIn("SID=abc", cookie_str)
+            return "ok"
+
+        with mock.patch("gemini_web2api.server.generate", side_effect=fake_generate):
+            status, _, body = self.post_json(
+                "/v1/chat/completions",
+                {
+                    "model": "gemini-3.6-flash",
+                    "messages": [{"role": "user", "content": "hello"}],
+                },
+                extra_headers={"X-Gemini-Cookie": "SID=abc; SAPISID=fromheader"},
+            )
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body)["choices"][0]["message"]["content"], "ok")
+        with mock.patch.dict(os.environ, {"GEMINI_COOKIE": "", "GEMINI_SAPISID": ""}, clear=False):
+            cookie_str, sapisid = load_cookie()
+        self.assertFalse(cookie_str)
+        self.assertIsNone(sapisid)
 
     @mock.patch("gemini_web2api.server.generate_stream", side_effect=RuntimeError("blocked by Google"))
     def test_chat_stream_forwards_upstream_error(self, _generate_stream):

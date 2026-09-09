@@ -208,13 +208,23 @@ Point OpenAI-compatible clients at:
 3. The process listens on `0.0.0.0` and reads Render's `PORT` env var automatically.
 4. After deploy, open the service URL — you should see the playground, not raw JSON.
 5. Health check path: `/health`.
+6. In the Render dashboard → **Environment**, add `GEMINI_COOKIE` (the blueprint leaves it blank on purpose). Value is a `gemini.google.com` cookie string, for example:
+
+```
+SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=...
+```
+
+Note the two underscores in `__Secure-1PSID`. This is **not** an AI Studio API key. Save, then redeploy. Never commit the cookie to git.
+
+`render.yaml` declares `GEMINI_COOKIE` with `sync: false` so Render asks you to fill it in the dashboard.
 
 **Empty replies on Render are expected without cookies.** Google often blocks datacenter IPs for anonymous Gemini Web access. This is the same issue as Docker bridge networking.
 
 To make chat work on Render:
 
-- Run the server on your own computer instead, or
-- Set a `GEMINI_COOKIE` environment variable to a `gemini.google.com` cookie string (`SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=...`), or
+- Set `GEMINI_COOKIE` in the Render Environment tab (preferred), or
+- Paste the same cookie into the playground sidebar (sent as `X-Gemini-Cookie` for that browser only), or
+- Run the server on your own computer, or
 - Put that string in `config.json` as `"cookie"` / `"cookie_file"`, optionally with a residential `proxy`.
 
 Do **not** use an AI Studio API key. That is a different product.

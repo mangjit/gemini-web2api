@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: gemini-web2api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m gemini_web2api
+    healthCheckPath: /health
+    envVars:
+      # Paste a gemini.google.com cookie string in the Render dashboard.
+      # Do not put the real value in this file.
+      - key: GEMINI_COOKIE
+        sync: false
+      - key: GEMINI_SAPISID
+        sync: false

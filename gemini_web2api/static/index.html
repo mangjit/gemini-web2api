@@ -128,7 +128,7 @@
     .side h2:first-child { margin-top: 4px; }
     .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
     .field label { font-size: 12px; color: var(--muted); }
-    .field input {
+    .field input, .field textarea {
       width: 100%;
       border: 1px solid var(--line);
       background: #0a101c;
@@ -136,6 +136,7 @@
       padding: 10px 12px;
       outline: none;
     }
+    .field textarea { min-height: 88px; max-height: none; flex: none; resize: vertical; font-family: var(--mono); font-size: 11px; }
     .field input:focus { border-color: rgba(106, 162, 255, .7); box-shadow: 0 0 0 3px rgba(106, 162, 255, .15); }
     .key-wrap { position: relative; }
     .key-wrap input { padding-right: 72px; }
@@ -382,7 +383,15 @@
         </div>
         <div class="hint" id="authHint">Do not paste an AI Studio / Gemini key. Use config.json api_keys. Docker default: sk-gemini</div>
       </div>
-      <button class="ghost" id="saveKey" type="button">Save key</button>
+      <button class="ghost" id="saveKey" type="button">Save password</button>
+
+      <h2>Gemini cookie</h2>
+      <div class="field">
+        <label for="geminiCookie">GEMINI_COOKIE (gemini.google.com)</label>
+        <textarea id="geminiCookie" placeholder="SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=..."></textarea>
+        <div class="hint" id="cookieHint">Needed on Render. Paste browser cookies for gemini.google.com, not an AI Studio API key. Also set GEMINI_COOKIE in the Render dashboard (do not commit it).</div>
+      </div>
+      <button class="ghost" id="saveCookie" type="button">Save cookie</button>
 
       <h2>Endpoints</h2>
       <div class="endpoints">
@@ -405,7 +414,7 @@
           <div class="attach-row" id="attachRow" hidden></div>
           <div class="composer-row">
             <button class="icon-btn" id="attachBtn" type="button" title="Attach image" aria-label="Attach image">＋</button>
-            <textarea id="input" ro/textarea>
+            <textarea id="input" rows="1" placeholder="Message Gemini…"></textarea>
             <button class="send" id="sendBtn" type="button" aria-label="Send">➤</button>
             <button class="stop" id="stopBtn" type="button" hidden aria-label="Stop">■</button>
           </div>
@@ -475,6 +484,7 @@
     var state = {
       model: storageGet("g2a.model") || "gemini-3.6-flash",
       apiKey: storageGet("g2a.key") || "",
+      geminiCookie: storageGet("g2a.cookie") || "",
       authRequired: false,
       messages: [],
       images: [],
@@ -510,6 +520,7 @@
     function authHeaders() {
       var h = { "Content-Type": "application/json" };
       if (state.apiKey) h.Authorization = "Bearer " + state.apiKey;
+      if (state.geminiCookie) h["X-Gemini-Cookie"] = state.geminiCookie;
       return h;
     }
 
@@ -657,6 +668,16 @@
 
     function hideAuthModal() { $("authModal").classList.remove("show"); }
 
+    function saveCookie(value) {
+      state.geminiCookie = String(value || "").trim().replace(/\n/g, " ");
+      $("geminiCookie").value = state.geminiCookie;
+      storageSet("g2a.cookie", state.geminiCookie);
+      $("cookieHint").className = "hint";
+      $("cookieHint").textContent = state.geminiCookie
+        ? "Cookie saved in this browser and sent as X-Gemini-Cookie. Also set GEMINI_COOKIE in the Render dashboard so API clients work without the playground."
+        : "Needed on Render. Paste browser cookies for gemini.google.com, not an AI Studio API key. Also set GEMINI_COOKIE in the Render dashboard (do not commit it).";
+    }
+
     function saveKey(value) {
       state.apiKey = String(value || "").trim();
       $("apiKey").value = state.apiKey;
@@ -692,9 +713,9 @@
           showAuthModal("API key required");
         } else {
           setStatus("ok", "v" + (data.version || "1.1.0") + " live");
-          state.notice = data.cookie_configured
+          state.notice = (data.cookie_configured || state.geminiCookie)
             ? ""
-            : "No Gemini cookie configured. Anonymous calls from Render IPs are often empty. Set GEMINI_COOKIE or cookie_file, or run this locally.";
+            : "No Gemini cookie configured. Anonymous calls from Render IPs are often empty. Paste a gemini.google.com cookie below, or set GEMINI_COOKIE on Render.";
           renderThread();
         }
       } catch (err) {
@@ -817,7 +838,9 @@
           });
         }
         assistant.pending = false;
-        if (!assistant.content) assistant.content = "(empty response from Gemini — the server is up, but Google may have blocked this Render IP.)";
+        if (!assistant.content) {
+          assistant.error = "Gemini returned no text. Paste a gemini.google.com cookie in the sidebar or set GEMINI_COOKIE on Render. Datacenter IPs are often blocked.";
+        }
         renderThread();
       } catch (err) {
         assistant.pending = false;
@@ -836,6 +859,8 @@
 
     function bind() {
       $("apiKey").value = state.apiKey;
+      $("geminiCookie").value = state.geminiCookie;
+      if (state.geminiCookie) saveCookie(state.geminiCookie);
       if (FALLBACK_MODELS.indexOf(state.model) !== -1) $("modelSelect").value = state.model;
       $("modelSelect").addEventListener("change", function (e) {
         state.model = e.target.value;
@@ -927,6 +952,18 @@
     try {
       bind();
       setModels(FALLBACK_MODELS);
+      updateSnippet();
+      renderThread();
+      loadHealth();
+    } catch (err) {
+      setStatus("bad", "ui error");
+      document.body.insertAdjacentHTML("afterbegin", '<div class="error-card" style="margin:16px">' + escapeHtml(String(err && err.message || err)) + "</div>");
+    }
+  })();
+  </script>
+</body>
+</html>
+ACK_MODELS);
       updateSnippet();
       renderThread();
       loadHealth();

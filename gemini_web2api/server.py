@@ -207,6 +207,8 @@ class GeminiHandler(BaseHTTPRequestHandler):
             pass
 
     def do_POST(self):
+        from .gemini import clear_request_cookie, set_request_cookie
+        set_request_cookie(self.headers.get("X-Gemini-Cookie") or "")
         try:
             if self.path.startswith("/v1") and not self._authorized():
                 self._send_unauthorized()
@@ -230,6 +232,8 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": {"message": str(e)}}, 500)
             except:
                 pass
+        finally:
+            clear_request_cookie()
 
     # ─── /v1/chat/completions ─────────────────────────────────────────────────
 

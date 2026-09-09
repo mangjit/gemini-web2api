@@ -3,6 +3,7 @@ import json
 import time
 import uuid
 import re
+import threading
 import urllib.request
 import urllib.parse
 import urllib.error
@@ -21,6 +22,7 @@ from .config import CONFIG
 _ssl_ctx = None
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
+_request_cookie = threading.local()
 
 
 def log(msg: str):
@@ -46,25 +48,58 @@ def _get_httpx_client():
     return _httpx_client
 
 
+def set_request_cookie(cookie_str: str):
+    """Override cookie for the current request thread (X-Gemini-Cookie)."""
+    _request_cookie.value = cookie_str or ""
+
+
+def clear_request_cookie():
+    _request_cookie.value = ""
+
+
+def normalize_cookie(content: str) -> str:
+    """Repair cookie strings copied from browsers or markdown (bold __Secure)."""
+    content = (content or "").strip()
+    if not content or content.startswith("{"):
+        return content
+    content = content.replace("\r", " ").replace("\n", " ")
+    content = re.sub(r"\*+Secure-", "__Secure-", content)
+    content = re.sub(r"\s*;\s*", "; ", content)
+    content = re.sub(r" {2,}", " ", content)
+    return content.strip(" ;")
+
+
 def _sapisid_from_cookie(cookie_str: str) -> str:
-    pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
+    pairs = {}
+    for part in re.split(r";\s*", cookie_str or ""):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            pairs[key.strip()] = value.strip()
     return pairs.get("SAPISID") or pairs.get("__Secure-1PSID", "")
 
 
 def _parse_cookie_content(content: str) -> tuple:
-    content = (content or "").strip()
+    content = normalize_cookie(content)
     if not content:
         return "", None
     if content.startswith("{"):
         data = json.loads(content)
-        cookie_str = data.get("cookie", "")
+        cookie_str = normalize_cookie(data.get("cookie", ""))
         sapisid = data.get("sapisid", "") or _sapisid_from_cookie(cookie_str)
         return cookie_str, sapisid or None
     return content, _sapisid_from_cookie(content) or None
 
 
 def load_cookie() -> tuple:
-    """Load cookie from file, inline config, or GEMINI_COOKIE env."""
+    """Load cookie from request header, file, inline config, or GEMINI_COOKIE env."""
+    override = getattr(_request_cookie, "value", "") or ""
+    if override.strip():
+        cookie_str, sapisid = _parse_cookie_content(override)
+        env_sapisid = os.environ.get("GEMINI_SAPISID")
+        if env_sapisid:
+            sapisid = env_sapisid
+        return cookie_str, sapisid if sapisid else None
+
     cookie_file = CONFIG.get("cookie_file")
     if cookie_file and os.path.exists(cookie_file):
         try:
