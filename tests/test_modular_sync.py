@@ -161,6 +161,44 @@ class StreamingEndpointTests(unittest.TestCase):
         CONFIG.clear()
         CONFIG.update(self.original_config)
 
+    def get(self, path, headers=None):
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
+        connection.request("GET", path, headers=headers or {})
+        response = connection.getresponse()
+        body = response.read()
+        hdrs = dict(response.getheaders())
+        connection.close()
+        return response.status, hdrs, body
+
+    def test_root_serves_playground(self):
+        status, headers, body = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+        self.assertIn(b"gemini-web2api", body)
+        self.assertIn(b"/v1/chat/completions", body)
+
+    def test_playground_does_not_require_api_key(self):
+        CONFIG["api_keys"] = ["secret"]
+        status, headers, body = self.get("/")
+        self.assertEqual(status, 200)
+        self.assertIn("text/html", headers["Content-Type"])
+
+    def test_health_returns_json(self):
+        CONFIG["api_keys"] = ["secret"]
+        status, headers, body = self.get("/health")
+        self.assertEqual(status, 200)
+        self.assertIn("application/json", headers["Content-Type"])
+        data = json.loads(body)
+        self.assertEqual(data["status"], "ok")
+        self.assertTrue(data["auth_required"])
+        self.assertIn("models", data)
+        self.assertIn("default_model", data)
+
+    def test_health_auth_required_false_when_no_keys(self):
+        CONFIG["api_keys"] = []
+        _, _, body = self.get("/health")
+        self.assertFalse(json.loads(body)["auth_required"])
+
     def post_json(self, path, payload):
         connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=5)
         connection.request(

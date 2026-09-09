@@ -13,6 +13,9 @@ streaming = ["httpx>=0.25"]
 [project.scripts]
 gemini-web2api = "gemini_web2api.__main__:main"
 
+[tool.setuptools.package-data]
+gemini_web2api = ["static/*"]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"

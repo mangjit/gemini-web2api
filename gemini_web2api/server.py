@@ -1,5 +1,6 @@
 """HTTP server: OpenAI-compatible API endpoints."""
 import json
+import os
 import time
 import uuid
 import re
@@ -12,6 +13,8 @@ from .gemini import generate, generate_stream, log
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
 from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
 from . import __version__
+
+_PLAYGROUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
 
 
 def _usage(prompt: str, text: str) -> dict:
@@ -52,6 +55,34 @@ class GeminiHandler(BaseHTTPRequestHandler):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _route_path(self):
+        return self.path.split("?", 1)[0]
+
+    def _health_payload(self):
+        keys = CONFIG.get("api_keys") or []
+        return {
+            "status": "ok",
+            "version": __version__,
+            "models": list(MODELS.keys()),
+            "default_model": CONFIG.get("default_model", "gemini-3.6-flash"),
+            "auth_required": bool(keys),
+        }
+
+    def _serve_playground(self):
+        try:
+            with open(_PLAYGROUND_FILE, "rb") as f:
+                body = f.read()
+        except OSError:
+            self.send_json(self._health_payload())
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -124,23 +155,26 @@ class GeminiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.path.startswith("/v1") and not self._authorized():
+            path = self._route_path()
+            if path.startswith("/v1") and not self._authorized():
                 self.send_json({"error": {"message": "invalid api key"}}, 401)
                 return
-            if self.path == "/v1/models":
+            if path == "/v1/models":
                 self.send_json({"object": "list", "data": [
                     {"id": n, "object": "model", "created": 1700000000,
                      "owned_by": "google", "description": c["desc"]}
                     for n, c in MODELS.items()
                 ]})
-            elif self.path.startswith("/v1beta/models"):
+            elif path.startswith("/v1beta/models"):
                 self.send_json({"models": [
                     {"name": f"models/{n}", "displayName": n, "description": c["desc"],
                      "supportedGenerationMethods": ["generateContent", "streamGenerateContent"]}
                     for n, c in MODELS.items()
                 ]})
-            elif self.path == "/":
-                self.send_json({"status": "ok", "version": __version__, "models": list(MODELS.keys())})
+            elif path in ("/health", "/status"):
+                self.send_json(self._health_payload())
+            elif path in ("/", "/playground", "/index.html"):
+                self._serve_playground()
             else:
                 self.send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):

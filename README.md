@@ -20,6 +20,7 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 - **Streaming**: SSE streaming support via `httpx`
 - **Codex CLI**: Responses API (`/v1/responses`) for OpenAI Codex integration
 - **Gemini CLI**: Google native API (`/v1beta/models`) for Gemini CLI compatibility
+- **Web Playground**: Built-in chat UI at `/` for browser use after deploy
 
 ## Quick Start
 
@@ -29,6 +30,8 @@ python gemini_web2api.py
 ```
 
 Server starts at `http://localhost:8081/v1`.
+
+Open `http://localhost:8081/` in a browser for the built-in chat playground. JSON health lives at `/health`.
 
 ## Client Configuration
 
@@ -183,6 +186,28 @@ Set `temporary_chats` to `true` to use Gemini Web temporary chats instead of
 persisting conversations to the account history.
 
 When `api_keys` is `[]`, authentication is disabled. When one or more keys are set, `/v1/*` endpoints require `Authorization: Bearer <key>` or `x-api-key: <key>`.
+
+## Web Playground
+
+Visiting the server root (`/`) opens a chat UI that talks to `/v1/chat/completions` on the same host. Use it after a Render/Docker deploy instead of reading the old JSON status blob.
+
+If `api_keys` is set in `config.json`, paste a key in the sidebar. The Docker example config uses `sk-gemini`.
+
+Point OpenAI-compatible clients at:
+
+| Field | Value |
+|-------|-------|
+| Base URL | `https://your-host/v1` |
+| API Key | a value from `api_keys`, or anything if unset |
+| Model | `gemini-3.6-flash` |
+
+## Deploy on Render
+
+1. New Web Service from this repo (Docker, or Python with `pip install -r requirements.txt`).
+2. Start command for native Python: `python -m gemini_web2api`.
+3. The process listens on `0.0.0.0` and reads Render's `PORT` env var automatically.
+4. After deploy, open the service URL — you should see the playground, not raw JSON.
+5. Health check path: `/health`.
 
 ## Docker
 

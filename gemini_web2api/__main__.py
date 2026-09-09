@@ -22,6 +22,13 @@ def main():
     if config_path:
         load_config(config_path)
 
+    env_port = os.environ.get("PORT")
+    if env_port:
+        try:
+            CONFIG["port"] = int(env_port)
+        except ValueError:
+            pass
+
     if args.port:
         CONFIG["port"] = args.port
     if args.cookie_file:
@@ -32,8 +39,9 @@ def main():
     port = CONFIG["port"]
     server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
     print(f"gemini-web2api v{__version__}")
-    print(f"  Listening: http://0.0.0.0:{port}")
-    print(f"  Base URL:  http://localhost:{port}/v1")
+    print(f"  Listening:  http://0.0.0.0:{port}")
+    print(f"  Playground: http://localhost:{port}/")
+    print(f"  Base URL:   http://localhost:{port}/v1")
     print(f"  Models:    {', '.join(MODELS.keys())}")
     print(f"  Cookie:    {'yes' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
     print(f"  Proxy:     {CONFIG.get('proxy') or 'system env'}")

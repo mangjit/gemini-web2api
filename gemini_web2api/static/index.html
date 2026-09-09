@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gemini-web2api</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%237db1ff'/%3E%3Cstop offset='1' stop-color='%233ee0c5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%23070b14'/%3E%3Cpath d='M16 4 L19.2 12.8 L28 16 L19.2 19.2 L16 28 L12.8 19.2 L4 16 L12.8 12.8 Z' fill='url(%23g)'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #070b14;
+      --bg-2: #0c1220;
+      --panel: rgba(16, 22, 36, .78);
+      --panel-solid: #101624;
+      --line: rgba(170, 190, 230, .12);
+      --text: #eef3ff;
+      --muted: #8d99b5;
+      --faint: #667085;
+      --accent: #6aa2ff;
+      --accent-2: #3ee0c5;
+      --accent-dim: rgba(106, 162, 255, .14);
+      --user: #18233a;
+      --danger: #ff6b7a;
+      --ok: #3ee0c5;
+      --warn: #f0b429;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .45);
+      --sans: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+      --mono: "Cascadia Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+      --radius: 18px;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: var(--sans);
+      background: var(--bg);
+      overflow: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(900px 520px at 8% -8%, rgba(106, 162, 255, .22), transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, rgba(62, 224, 197, .1), transparent 46%),
+        radial-gradient(600px 380px at 70% 110%, rgba(106, 162, 255, .1), transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    button, input, select, textarea { font-family: inherit; color: inherit; }
+    button { cursor: pointer; }
+    a { color: var(--accent); }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: 64px 1fr;
+      grid-template-areas: "top top" "side main";
+    }
+    .top {
+      grid-area: top;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 0 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 11, 20, .72);
+      backdrop-filter: blur(16px);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .mark {
+      width: 34px; height: 34px; flex: 0 0 auto;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #7db1ff, #3ee0c5);
+      display: grid; place-items: center;
+      box-shadow: 0 0 24px rgba(106, 162, 255, .35);
+    }
+    .mark svg { width: 18px; height: 18px; }
+    .wordmark { display: flex; flex-direction: column; min-width: 0; }
+    .wordmark b { font-size: 14px; letter-spacing: .01em; }
+    .wordmark span { color: var(--muted); font-size: 11px; }
+    .top-actions { display: flex; align-items: center; gap: 10px; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--panel);
+      font-size: 12px; color: var(--muted);
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    .dot.bad { background: var(--danger); }
+    .dot.spin { background: var(--warn); }
+    .icon-btn, .ghost {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 12px;
+    }
+    .icon-btn {
+      width: 36px; height: 36px;
+      display: grid; place-items: center;
+    }
+    .ghost { padding: 8px 12px; font-size: 12px; }
+    .icon-btn:hover, .ghost:hover { border-color: rgba(106, 162, 255, .45); background: var(--accent-dim); }
+    .menu-btn { display: none; }
+
+    .side {
+      grid-area: side;
+      border-right: 1px solid var(--line);
+      background: rgba(10, 15, 26, .72);
+      backdrop-filter: blur(18px);
+      overflow: auto;
+      padding: 16px;
+    }
+    .side h2 {
+      margin: 18px 0 8px;
+      font-size: 11px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--faint);
+      font-weight: 600;
+    }
+    .side h2:first-child { margin-top: 4px; }
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    .field input, .field select, .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #0a101c;
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+    }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      border-color: rgba(106, 162, 255, .7);
+      box-shadow: 0 0 0 3px rgba(106, 162, 255, .15);
+    }
+    .key-wrap { position: relative; }
+    .key-wrap input { padding-right: 72px; }
+    .key-wrap .mini {
+      position: absolute; right: 6px; top: 6px;
+      height: 28px; padding: 0 8px; font-size: 11px;
+    }
+    .hint { font-size: 11px; color: var(--faint); line-height: 1.45; }
+    .hint.warn { color: #f3c969; }
+    .copy-row {
+      display: flex; gap: 8px; align-items: center;
+      border: 1px solid var(--line);
+      background: #0a101c;
+      border-radius: 12px;
+      padding: 8px 8px 8px 12px;
+      margin-bottom: 8px;
+    }
+    .copy-row code {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--mono); font-size: 11px; color: #c9d6f5;
+    }
+    .models { display: flex; flex-direction: column; gap: 6px; }
+    .model {
+      text-align: left;
+      border: 1px solid var(--line);
+      background: transparent;
+      border-radius: 12px;
+      padding: 9px 10px;
+    }
+    .model b { display: block; font-size: 12px; font-weight: 600; }
+    .model span { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+    .model.active {
+      border-color: rgba(106, 162, 255, .7);
+      background: var(--accent-dim);
+    }
+    .endpoints { display: flex; flex-direction: column; gap: 6px; }
+    .endpoints div {
+      display: flex; justify-content: space-between; gap: 8px;
+      font-size: 11px; color: var(--muted);
+    }
+    .endpoints code { color: #c9d6f5; font-family: var(--mono); font-size: 11px; }
+    pre.snippet {
+      margin: 0 0 10px;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #070b14;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      line-height: 1.45;
+      color: #c9d6f5;
+      white-space: pre-wrap;
+    }
+
+    .main {
+      grid-area: main;
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      min-height: 0;
+    }
+    .thread {
+      flex: 1;
+      overflow: auto;
+      padding: 28px 8vw 16px;
+    }
+    .empty {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+    .empty h1 {
+      margin: 8px 0 0;
+      font-size: 28px;
+      color: var(--text);
+      letter-spacing: -.03em;
+    }
+    .empty p { margin: 0; max-width: 460px; line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; max-width: 640px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .chip:hover { border-color: var(--accent); background: var(--accent-dim); }
+
+    .msg { display: flex; gap: 12px; margin: 0 auto 18px; max-width: 860px; }
+    .msg.user { flex-direction: row-reverse; }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 10px; flex: 0 0 auto;
+      display: grid; place-items: center; font-size: 12px; font-weight: 700;
+      background: #1b2438; border: 1px solid var(--line); color: var(--accent-2);
+    }
+    .msg.user .avatar { background: #1a2a4d; color: #bcd3ff; }
+    .bubble {
+      min-width: 0;
+      max-width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel-solid);
+      border-radius: 16px;
+      padding: 12px 14px;
+      line-height: 1.55;
+      font-size: 14.5px;
+    }
+    .msg.user .bubble {
+      background: linear-gradient(180deg, #1c2b4d, #16223d);
+      border-color: rgba(106, 162, 255, .28);
+    }
+    .bubble p { margin: 0 0 10px; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble h1, .bubble h2, .bubble h3 { margin: 0 0 8px; line-height: 1.25; }
+    .bubble ul { margin: 0 0 10px; padding-left: 18px; }
+    .bubble pre {
+      margin: 10px 0;
+      padding: 12px;
+      overflow: auto;
+      border-radius: 12px;
+      background: #070b14;
+      border: 1px solid var(--line);
+      font-family: var(--mono);
+      font-size: 12.5px;
+    }
+    .bubble code {
+      font-family: var(--mono);
+      font-size: 12.5px;
+      background: rgba(106, 162, 255, .1);
+      padding: 1px 5px;
+      border-radius: 6px;
+    }
+    .bubble pre code { background: none; padding: 0; }
+    .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .thumbs img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+    .meta { display: flex; justify-content: space-between; gap: 8px; margin-top: 8px; }
+    .meta button { border: 0; background: none; color: var(--faint); font-size: 11px; padding: 0; }
+    .meta button:hover { color: var(--accent); }
+    .error-card {
+      max-width: 860px; margin: 0 auto 18px;
+      border: 1px solid rgba(255, 107, 122, .35);
+      background: rgba(255, 107, 122, .08);
+      color: #ffd5da;
+      border-radius: 14px;
+      padding: 12px 14px;
+      font-size: 13px;
+    }
+
+    .composer-wrap {
+      padding: 0 8vw 22px;
+    }
+    .composer {
+      max-width: 860px;
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      background: rgba(16, 22, 36, .9);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 10px;
+    }
+    .attach-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 8px 8px; }
+    .attach {
+      position: relative;
+      width: 56px; height: 56px;
+    }
+    .attach img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+    .attach button {
+      position: absolute; top: -6px; right: -6px;
+      width: 18px; height: 18px; border-radius: 50%;
+      border: 0; background: #ff6b7a; color: #fff; font-size: 11px;
+      display: grid; place-items: center;
+    }
+    .composer-row { display: flex; align-items: flex-end; gap: 8px; }
+    textarea {
+      flex: 1;
+      resize: none;
+      min-height: 44px;
+      max-height: 160px;
+      border: 0;
+      background: transparent;
+      outline: none;
+      padding: 10px 8px;
+      font-size: 14.5px;
+      line-height: 1.4;
+    }
+    .send, .stop {
+      width: 42px; height: 42px; border-radius: 14px; border: 0;
+      display: grid; place-items: center;
+    }
+    .send { background: linear-gradient(135deg, #6aa2ff, #3ee0c5); color: #071018; }
+    .send:disabled { opacity: .4; cursor: not-allowed; }
+    .stop { background: #ff6b7a; color: #fff; }
+    .foot {
+      display: flex; justify-content: space-between; gap: 8px;
+      padding: 6px 8px 2px; color: var(--faint); font-size: 11px;
+    }
+
+    .backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 5;
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
+      .side {
+        position: fixed; z-index: 6; top: 64px; left: 0; bottom: 0; width: min(360px, 88vw);
+        transform: translateX(-105%);
+        transition: transform .2s ease;
+      }
+      .side.open { transform: none; }
+      .menu-btn { display: grid; }
+      .backdrop.show { display: block; }
+      .thread, .composer-wrap { padding-left: 16px; padding-right: 16px; }
+      .empty h1 { font-size: 22px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open menu">☰</button>
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" fill="#071018"/></svg>
+        </div>
+        <div class="wordmark">
+          <b>gemini-web2api</b>
+          <span>OpenAI-compatible playground</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <div class="pill"><span class="dot" id="statusDot"></span><span id="statusText">checking</span></div>
+        <button class="ghost" id="newChat">New chat</button>
+      </div>
+    </header>
+
+    <aside class="side" id="side">
+      <h2>Connection</h2>
+      <div class="copy-row"><code id="baseUrl"></code><button class="ghost mini" data-copy="base">Copy</button></div>
+      <div class="field">
+        <label for="apiKey">API key</label>
+        <div class="key-wrap">
+          <input id="apiKey" type="password" placeholder="sk-… (if configured)" autocomplete="off">
+          <button class="ghost mini" id="toggleKey" type="button">Show</button>
+        </div>
+        <div class="hint" id="authHint">Optional unless the server has api_keys set.</div>
+      </div>
+
+      <h2>Model</h2>
+      <div class="models" id="models"></div>
+
+      <h2>Endpoints</h2>
+      <div class="endpoints">
+        <div><span>Chat</span><code>/v1/chat/completions</code></div>
+        <div><span>Models</span><code>/v1/models</code></div>
+        <div><span>Responses</span><code>/v1/responses</code></div>
+        <div><span>Gemini CLI</span><code>/v1beta/models</code></div>
+        <div><span>Health</span><code>/health</code></div>
+      </div>
+
+      <h2>Client snippet</h2>
+      <pre class="snippet" id="snippet"></pre>
+      <button class="ghost" data-copy="snippet">Copy Python</button>
+    </aside>
+
+    <main class="main">
+      <div class="thread" id="thread"></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="attach-row" id="attachRow" hidden></div>
+          <div class="composer-row">
+            <button class="icon-btn" id="attachBtn" title="Attach image" aria-label="Attach image">＋</button>
+            <textarea id="input" rows="1" placeholder="Message Gemini…"></textarea>
+            <button class="send" id="sendBtn" aria-label="Send">➤</button>
+            <button class="stop" id="stopBtn" hidden aria-label="Stop">■</button>
+          </div>
+          <div class="foot">
+            <span>Enter to send · Shift+Enter for a new line · paste images</span>
+            <span id="modelFoot"></span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="backdrop" id="backdrop"></div>
+  <input type="file" id="file" accept="image/*" hidden multiple>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const state = {
+      models: {},
+      model: localStorage.getItem("g2a.model") || "",
+      apiKey: localStorage.getItem("g2a.key") || "",
+      authRequired: false,
+      messages: [],
+      images: [],
+      streaming: false,
+      abort: null,
+      version: "",
+    };
+
+    const PROMPTS = [
+      "Explain how this proxy turns Gemini Web into an OpenAI API",
+      "Write a Python client that streams /v1/chat/completions",
+      "Give me 8 spicy ramen topping combinations",
+      "Review this idea: a CLI that talks to this server as if it were OpenAI",
+    ];
+
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
+    }
+
+    function renderMarkdown(src) {
+      const fences = [];
+      let text = escapeHtml(src);
+      text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        fences.push(`<pre><code class="lang-${lang}">${code}</code></pre>`);
+        return `\0F${fences.length - 1}\0`;
+      });
+      text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+      text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      text = text.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      text = text.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+      text = text.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+      text = text.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+      text = text.replace(/^\s*[-*] (.*)$/gm, "<li>$1</li>");
+      text = text.replace(/(?:<li>.*<\/li>\n?)+/g, (block) => `<ul>${block}</ul>`);
+      text = text.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      text = text.split(/\n{2,}/).map((p) => {
+        const t = p.trim();
+        if (/^<(h\d|ul|pre)/.test(t)) return t;
+        return `<p>${p.replace(/\n/g, "<br>")}</p>`;
+      }).join("");
+      return text.replace(/\0F(\d+)\0/g, (_, i) => fences[Number(i)]);
+    }
+
+    function originBase() {
+      return location.origin + "/v1";
+    }
+
+    function authHeaders() {
+      const h = { "Content-Type": "application/json" };
+      if (state.apiKey) h.Authorization = "Bearer " + state.apiKey;
+      return h;
+    }
+
+    function setStatus(kind, text) {
+      const dot = $("statusDot");
+      dot.className = "dot " + (kind === "ok" ? "ok" : kind === "bad" ? "bad" : "spin");
+      $("statusText").textContent = text;
+    }
+
+    function updateSnippet() {
+      $("baseUrl").textContent = originBase();
+      $("snippet").textContent =
+`from openai import OpenAI
+client = OpenAI(
+    base_url="${originBase()}",
+    api_key="${state.apiKey || "sk-your-key"}",
+)
+print(client.chat.completions.create(
+    model="${state.model || "gemini-3.6-flash"}",
+    messages=[{"role":"user","content":"Hello!"}],
+).choices[0].message.content)`;
+      $("modelFoot").textContent = state.model || "";
+    }
+
+    function renderModels() {
+      const box = $("models");
+      box.innerHTML = "";
+      const names = Object.keys(state.models);
+      if (!state.model || !state.models[state.model]) state.model = names[0] || "";
+      names.forEach((name) => {
+        const btn = document.createElement("button");
+        btn.className = "model" + (name === state.model ? " active" : "");
+        btn.innerHTML = `<b>${escapeHtml(name)}</b><span>${escapeHtml(state.models[name] || "")}</span>`;
+        btn.onclick = () => {
+          state.model = name;
+          localStorage.setItem("g2a.model", name);
+          renderModels();
+          updateSnippet();
+        };
+        box.appendChild(btn);
+      });
+      updateSnippet();
+    }
+
+    function renderThread() {
+      const thread = $("thread");
+      if (!state.messages.length) {
+        thread.innerHTML = `
+          <div class="empty">
+            <div class="mark" style="width:52px;height:52px;border-radius:16px">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" fill="#071018"/></svg>
+            </div>
+            <h1>Talk to Gemini through your API</h1>
+            <p>This host is an OpenAI-compatible proxy. Chat here, or point Cherry Studio / Codex / the OpenAI SDK at <code>${escapeHtml(originBase())}</code>.</p>
+            <div class="chips">${PROMPTS.map((p) => `<button class="chip">${escapeHtml(p)}</button>`).join("")}</div>
+          </div>`;
+        thread.querySelectorAll(".chip").forEach((btn) => {
+          btn.onclick = () => { $("input").value = btn.textContent; $("input").focus(); autoGrow(); };
+        });
+        return;
+      }
+      thread.innerHTML = "";
+      state.messages.forEach((m, idx) => {
+        if (m.role === "system") return;
+        const row = document.createElement("div");
+        row.className = "msg " + (m.role === "user" ? "user" : "assistant");
+        const text = typeof m.content === "string" ? m.content : (m.content || []).filter(p => p.type === "text").map(p => p.text).join("\n");
+        const imgs = typeof m.content === "string" ? [] : (m.content || []).filter(p => p.type === "image_url");
+        const thumbs = imgs.length ? `<div class="thumbs">${imgs.map(p => `<img src="${p.image_url.url}" alt="">`).join("")}</div>` : "";
+        row.innerHTML = `
+          <div class="avatar">${m.role === "user" ? "U" : "G"}</div>
+          <div class="bubble">${thumbs}${m.role === "assistant" ? renderMarkdown(text || "") : escapeHtml(text || "").replace(/\n/g, "<br>")}${m.role === "assistant" ? `<div class="meta"><span></span><button data-copy-msg="${idx}">Copy</button></div>` : ""}</div>`;
+        thread.appendChild(row);
+      });
+      thread.querySelectorAll("[data-copy-msg]").forEach((btn) => {
+        btn.onclick = () => {
+          const m = state.messages[Number(btn.dataset.copyMsg)];
+          navigator.clipboard.writeText(typeof m.content === "string" ? m.content : "");
+          btn.textContent = "Copied";
+          setTimeout(() => btn.textContent = "Copy", 1200);
+        };
+      });
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function autoGrow() {
+      const el = $("input");
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    }
+
+    function renderAttaches() {
+      const row = $("attachRow");
+      if (!state.images.length) { row.hidden = true; row.innerHTML = ""; return; }
+      row.hidden = false;
+      row.innerHTML = state.images.map((img, i) =>
+        `<div class="attach"><img src="${img.url}" alt=""><button data-x="${i}" aria-label="Remove">×</button></div>`
+      ).join("");
+      row.querySelectorAll("button").forEach((b) => {
+        b.onclick = () => { state.images.splice(Number(b.dataset.x), 1); renderAttaches(); };
+      });
+    }
+
+    function addImageFile(file) {
+      if (!file || !file.type.startsWith("image/")) return;
+      if (file.size > 8 * 1024 * 1024) { alert("Image is larger than 8MB"); return; }
+      const reader = new FileReader();
+      reader.onload = () => {
+        state.images.push({ url: reader.result, name: file.name });
+        renderAttaches();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function userContent(text) {
+      if (!state.images.length) return text;
+      return [
+        { type: "text", text },
+        ...state.images.map((img) => ({ type: "image_url", image_url: { url: img.url } })),
+      ];
+    }
+
+    async function loadHealth() {
+      try {
+        const res = await fetch("/health");
+        const data = await res.json();
+        state.version = data.version || "";
+        state.authRequired = !!data.auth_required;
+        const names = data.models || [];
+        state.models = Object.fromEntries(names.map((n) => [n, ""]));
+        if (data.default_model && !state.model) state.model = data.default_model;
+        $("authHint").textContent = state.authRequired
+          ? "This server requires an API key. Docker example config uses sk-gemini."
+          : "Auth is off. Any key is ignored until you set api_keys.";
+        $("authHint").className = "hint" + (state.authRequired && !state.apiKey ? " warn" : "");
+        setStatus("ok", "v" + state.version + " live");
+        try {
+          const mres = await fetch("/v1/models", { headers: authHeaders() });
+          if (mres.status === 401) {
+            setStatus("bad", "need API key");
+          } else if (mres.ok) {
+            const md = await mres.json();
+            (md.data || []).forEach((m) => { state.models[m.id] = m.description || ""; });
+          }
+        } catch (_) {}
+        renderModels();
+      } catch (err) {
+        setStatus("bad", "offline");
+      }
+    }
+
+    async function send() {
+      const text = $("input").value.trim();
+      if ((!text && !state.images.length) || state.streaming) return;
+      if (state.authRequired && !state.apiKey) {
+        $("apiKey").focus();
+        $("authHint").className = "hint warn";
+        return;
+      }
+      const content = userContent(text || "Describe this image");
+      state.messages.push({ role: "user", content });
+      state.images = [];
+      renderAttaches();
+      $("input").value = "";
+      autoGrow();
+      state.messages.push({ role: "assistant", content: "" });
+      renderThread();
+      await streamLast();
+    }
+
+    async function streamLast() {
+      const assistant = state.messages[state.messages.length - 1];
+      state.streaming = true;
+      $("sendBtn").hidden = true;
+      $("stopBtn").hidden = false;
+      const ctrl = new AbortController();
+      state.abort = ctrl;
+      try {
+        const payload = {
+          model: state.model,
+          stream: true,
+          messages: state.messages.slice(0, -1).map((m) => ({ role: m.role, content: m.content })),
+        };
+        const res = await fetch("/v1/chat/completions", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify(payload),
+          signal: ctrl.signal,
+        });
+        if (!res.ok) {
+          let err = await res.text();
+          try { err = JSON.parse(err).error.message || err; } catch (_) {}
+          if (res.status === 401) {
+            state.authRequired = true;
+            $("authHint").className = "hint warn";
+            $("authHint").textContent = "Invalid or missing API key. Check api_keys in config.json (Docker default is sk-gemini).";
+            setStatus("bad", "need API key");
+          }
+          throw new Error(err || ("HTTP " + res.status));
+        }
+        const reader = res.body.getReader();
+        const dec = new TextDecoder();
+        let buf = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const parts = buf.split("\n\n");
+          buf = parts.pop();
+          for (const part of parts) {
+            for (const line of part.split("\n")) {
+              if (!line.startsWith("data: ")) continue;
+              const data = line.slice(6);
+              if (data === "[DONE]") continue;
+              try {
+                const json = JSON.parse(data);
+                const delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+                if (delta) {
+                  assistant.content += delta;
+                  renderThread();
+                }
+              } catch (_) {}
+            }
+          }
+        }
+        if (!assistant.content) assistant.content = "(empty response)";
+      } catch (err) {
+        if (err.name === "AbortError") {
+          if (!assistant.content) assistant.content = "(stopped)";
+        } else {
+          state.messages.pop();
+          renderThread();
+          const card = document.createElement("div");
+          card.className = "error-card";
+          card.textContent = String(err.message || err);
+          $("thread").appendChild(card);
+          $("thread").scrollTop = $("thread").scrollHeight;
+        }
+      } finally {
+        state.streaming = false;
+        state.abort = null;
+        $("sendBtn").hidden = false;
+        $("stopBtn").hidden = true;
+        renderThread();
+      }
+    }
+
+    $("apiKey").value = state.apiKey;
+    $("apiKey").addEventListener("input", (e) => {
+      state.apiKey = e.target.value.trim();
+      localStorage.setItem("g2a.key", state.apiKey);
+      $("authHint").className = "hint";
+      updateSnippet();
+    });
+    $("toggleKey").onclick = () => {
+      const el = $("apiKey");
+      el.type = el.type === "password" ? "text" : "password";
+      $("toggleKey").textContent = el.type === "password" ? "Show" : "Hide";
+    };
+    $("input").addEventListener("input", autoGrow);
+    $("input").addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+    });
+    $("input").addEventListener("paste", (e) => {
+      const items = [...(e.clipboardData && e.clipboardData.items || [])];
+      let used = false;
+      items.forEach((it) => {
+        if (it.type.startsWith("image/")) { used = true; addImageFile(it.getAsFile()); }
+      });
+      if (used) e.preventDefault();
+    });
+    $("sendBtn").onclick = send;
+    $("stopBtn").onclick = () => { if (state.abort) state.abort.abort(); };
+    $("newChat").onclick = () => { state.messages = []; renderThread(); $("input").focus(); };
+    $("attachBtn").onclick = () => $("file").click();
+    $("file").onchange = (e) => {
+      [...e.target.files].forEach(addImageFile);
+      e.target.value = "";
+    };
+    $("menuBtn").onclick = () => { $("side").classList.add("open"); $("backdrop").classList.add("show"); };
+    $("backdrop").onclick = () => { $("side").classList.remove("open"); $("backdrop").classList.remove("show"); };
+    document.querySelectorAll("[data-copy]").forEach((btn) => {
+      btn.onclick = () => {
+        const id = btn.dataset.copy;
+        const text = id === "base" ? originBase() : $("snippet").textContent;
+        navigator.clipboard.writeText(text);
+        const old = btn.textContent;
+        btn.textContent = "Copied";
+        setTimeout(() => btn.textContent = old, 1200);
+      };
+    });
+
+    renderThread();
+    updateSnippet();
+    loadHealth();
+  </script>
+</body>
+</html>

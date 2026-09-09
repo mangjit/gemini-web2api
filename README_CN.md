@@ -20,6 +20,7 @@
 - **流式输出**: 基于 `httpx` 的 SSE Streaming 支持
 - **Codex CLI**: Responses API (`/v1/responses`) 兼容 OpenAI Codex
 - **Gemini CLI**: Google 原生 API (`/v1beta/models`) 兼容 Gemini CLI
+- **网页 Playground**: 访问 `/` 即可在浏览器里对话
 
 ## 快速开始
 
@@ -173,6 +174,19 @@ Pro 路由需要 **Gemini Advanced** (付费订阅). 免费 Google 账号的 coo
 不会将对话保存在账号历史记录中。
 
 `api_keys` 为空数组 `[]` 时不校验密钥；填入一个或多个密钥后, `/v1/*` 接口需要 `Authorization: Bearer <key>` 或 `x-api-key: <key>`.
+
+## 网页 Playground
+
+访问服务根路径 `/` 会打开聊天界面，请求发往本机的 `/v1/chat/completions`。部署到 Render 后打开网站就应该看到这个界面，而不是一段 JSON。
+
+如果 `config.json` 里配置了 `api_keys`，在侧栏填入密钥。Docker 示例配置使用 `sk-gemini`。
+
+## 部署到 Render
+
+1. 用本仓库创建 Web Service（Docker，或 Python + `pip install -r requirements.txt`）。
+2. 原生 Python 启动命令: `python -m gemini_web2api`。
+3. 进程监听 `0.0.0.0`，并自动读取 Render 的 `PORT` 环境变量。
+4. 健康检查路径: `/health`。
 
 ## Docker 部署
 
