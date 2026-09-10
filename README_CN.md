@@ -97,7 +97,7 @@ gemini-3.5-flash-thinking@think=2   # 中等
 gemini-3.5-flash-thinking@think=4   # 最浅
 ```
 
-## 用 Google 账号登录 (Gemini Cookie)
+## Gemini Cookie (`GEMINI_COOKIE`)
 
 匿名访问部分文字对话可用, 但 Render 机房 IP 和 **图片对话** 需要已登录的 `gemini.google.com` 会话。`gemini-3.1-pro` 也需要 **Gemini Advanced** cookie, 否则会静默落到 Flash。
 
@@ -105,11 +105,7 @@ Google OAuth / AI Studio API Key **不能** 换成这些 cookie (`SID`, `SAPISID
 
 ### Playground（含 Render）
 
-1. 打开 Playground, 点击 **Sign in with Google**。
-2. 在弹出窗口输入 Google 邮箱和密码（即使浏览器已登录 Google 搜索也会再要一次）。
-3. 完成后关闭该窗口。只有收集到 Gemini cookie 时才会显示 **Signed in**。
-
-Cookie 只留在该浏览器, 请求时作为 `X-Gemini-Cookie` 发送。API 客户端请在 Render 控制台设置 `GEMINI_COOKIE`。不要把 cookie 提交到 git。
+把 `gemini.google.com` 的 cookie 字符串粘贴到侧栏 **GEMINI_COOKIE** 并点击 **Save cookie**。Cookie 只留在该浏览器, 请求时作为 `X-Gemini-Cookie` 发送。API 客户端请在 Render 控制台设置 `GEMINI_COOKIE`。不要把 cookie 提交到 git。
 
 ### 本机浏览器登录
 

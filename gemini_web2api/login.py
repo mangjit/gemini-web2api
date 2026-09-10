@@ -130,16 +130,16 @@ def _playwright_missing_message() -> str:
         "Playwright is not installed. On your own computer run:\n"
         "  pip install playwright && playwright install chromium\n"
         "  python -m gemini_web2api login\n\n"
-        "On Render, use playground Sign in with Google + Cookie Sync "
-        "(/extension.zip). This site never asks for your Google password."
+        "On Render, paste GEMINI_COOKIE in the playground sidebar or set it "
+        "in the dashboard. This site never asks for your Google password."
     )
 
 
 def _no_display_message() -> str:
     return (
         "No desktop display. Google sign-in needs a real browser window.\n"
-        "Run `python -m gemini_web2api login` on your computer, or use the "
-        "playground Sign in with Google button and Cookie Sync.\n"
+        "Run `python -m gemini_web2api login` on your computer, or paste "
+        "GEMINI_COOKIE in the playground sidebar.\n"
         "Do not paste a Gmail password into this server."
     )
 

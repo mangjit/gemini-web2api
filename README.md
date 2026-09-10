@@ -109,7 +109,7 @@ gemini-3.5-flash-thinking@think=2   # medium
 gemini-3.5-flash-thinking@think=4   # shallowest
 ```
 
-## Sign in with Google (Gemini cookies)
+## Gemini cookies (`GEMINI_COOKIE`)
 
 Anonymous access works for some text chats, but Render datacenter IPs and **file chat** need a signed-in `gemini.google.com` session. `gemini-3.1-pro` also needs a **Gemini Advanced** cookie or it silently routes to Flash.
 
@@ -117,9 +117,7 @@ This project never asks for your Gmail password.
 
 ### Playground (including Render)
 
-Click **Sign in with Google**. A Google window opens to add credentials (email, then password) even if this browser is already signed into Google Search. Close that window when you are done. This app shows **Signed in** only when a Gemini cookie was collected.
-
-Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
+Paste the `gemini.google.com` cookie string into the sidebar **GEMINI_COOKIE** field and click **Save cookie**. It stays in that browser and is sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
 
 ### Local browser login
 
@@ -261,7 +259,7 @@ Note the two underscores in `__Secure-1PSID`. This is **not** an AI Studio API k
 
 To make chat work on Render:
 
-- Click **Sign in with Google** in the playground (cookies collect automatically), or
+- Paste `GEMINI_COOKIE` in the playground sidebar and click **Save cookie**, or
 - Set `GEMINI_COOKIE` in the Render Environment tab (preferred for API clients), or
 - Run `python -m gemini_web2api login` on your computer and use `--cookie-file cookie.txt`, or
 - Put that string in `config.json` as `"cookie"` / `"cookie_file"`, optionally with a residential `proxy`.
@@ -352,7 +350,7 @@ resp = client.chat.completions.create(
 
 ## Limitations
 
-- **Files need a cookie**: Images, PDFs, and video uploads are rejected anonymously. Sign in with Google in the playground or set `GEMINI_COOKIE`. Text/coding can work without it; files cannot.
+- **Files need a cookie**: Images, PDFs, and video uploads are rejected anonymously. Paste `GEMINI_COOKIE` in the playground or set it on Render. Text/coding can work without it; files cannot.
 - **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.

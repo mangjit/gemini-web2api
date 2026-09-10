@@ -142,7 +142,7 @@ def profile_from_callback(handler, query: dict) -> dict:
     if not code:
         raise RuntimeError("Google did not return an authorization code")
     if not meta:
-        raise RuntimeError("Sign-in expired. Try Sign in with Google again.")
+        raise RuntimeError("Sign-in expired. Try again.")
     payload = {
         "code": code,
         "client_id": client_id(),

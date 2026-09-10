@@ -192,8 +192,8 @@ def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str
     cookie_str, sapisid = load_cookie()
     if not cookie_str:
         raise RuntimeError(
-            "File input needs a gemini.google.com cookie. Sign in with Google so Cookie Sync "
-            "can auto-collect SID/SAPISID, or set GEMINI_COOKIE."
+            "File input needs a gemini.google.com cookie. Paste GEMINI_COOKIE in the "
+            "playground sidebar or set it on the server. Anonymous uploads are rejected."
         )
 
     tokens = _cached_page_tokens()

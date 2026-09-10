@@ -328,8 +328,8 @@ def empty_upstream_message(raw: str = "", has_files: bool = False) -> str:
                 "gemini.google.com session and try a smaller PNG or JPEG."
             )
         return (
-            "Image chat needs a signed-in Gemini cookie. Click Sign in with Google, "
-            "finish email and password, then try the image again."
+            "Image chat needs a signed-in Gemini cookie. Paste a gemini.google.com "
+            "cookie in the playground sidebar, or set GEMINI_COOKIE on Render, then try the image again."
         )
     if "recaptcha" in blob or "captcha" in blob:
         return (
