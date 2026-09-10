@@ -111,16 +111,17 @@ gemini-3.5-flash-thinking@think=4   # shallowest
 
 ## Sign in with Google (Gemini cookies)
 
-Anonymous access works for some text chats, but Render datacenter IPs and **image chat** need a signed-in `gemini.google.com` session. `gemini-3.1-pro` also needs a **Gemini Advanced** cookie or it silently routes to Flash.
+Anonymous access works for some text chats, but Render datacenter IPs and **file chat** need a signed-in `gemini.google.com` session. `gemini-3.1-pro` also needs a **Gemini Advanced** cookie or it silently routes to Flash.
 
-Google OAuth / AI Studio API keys **cannot** issue these cookies (`SID`, `SAPISID`, `__Secure-1PSID`). They are HttpOnly. This project never asks for your Gmail password.
+This project never asks for your Gmail password.
 
 ### Playground (including Render)
 
 1. Open the playground and click **Sign in with Google**.
-2. Sign in with Gmail on Google’s real page (gemini.google.com).
-3. Click **Get Cookie Sync**, unzip the download, then Load unpacked on `chrome://extensions`.
-4. Keep the playground tab open. After Gmail sign-in, **cookies fill automatically** (images, PDF, video, coding). Manual **Send now** is only a backup.
+2. Google asks which account should **connect to this app** (account picker / consent). You are not just reopening a page you already signed into.
+3. After you confirm, session cookies (`SID`, `SAPISID`, `__Secure-1PSID`) are collected **automatically**. No download, paste, or upload.
+
+Optional: set `GOOGLE_CLIENT_ID` (and `GOOGLE_CLIENT_SECRET` for the redirect flow) so Google shows the official “this app wants access” screen. Authorized JavaScript origin and redirect URI should be your playground URL (`/auth/google/callback`).
 
 Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
 
@@ -264,7 +265,7 @@ Note the two underscores in `__Secure-1PSID`. This is **not** an AI Studio API k
 
 To make chat work on Render:
 
-- Click **Sign in with Google** in the playground, then Cookie Sync → **Send cookies**, or
+- Click **Sign in with Google** in the playground (cookies collect automatically), or
 - Set `GEMINI_COOKIE` in the Render Environment tab (preferred for API clients), or
 - Run `python -m gemini_web2api login` on your computer and use `--cookie-file cookie.txt`, or
 - Put that string in `config.json` as `"cookie"` / `"cookie_file"`, optionally with a residential `proxy`.

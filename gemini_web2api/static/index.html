@@ -429,7 +429,7 @@
       </div>
       <button class="ghost" id="saveKey" type="button">Save password</button>
 
-      <h2>Gemini cookie</h2>
+      <h2>Google</h2>
       <button class="google-btn" id="googleSignIn" type="button">
         <svg viewBox="0 0 18 18" aria-hidden="true">
           <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
@@ -437,19 +437,11 @@
           <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/>
           <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/>
         </svg>
-        Sign in with Google
+        <span id="googleSignInLabel">Sign in with Google</span>
       </button>
-      <div class="chat-toolbar">
-        <button class="ghost" id="downloadExt" type="button">Get Cookie Sync</button>
-        <button class="ghost" id="importCookieBtn" type="button">Import gemini-auth.json</button>
-      </div>
-      <div class="field">
-        <label for="geminiCookie">GEMINI_COOKIE (auto-filled after sign-in)</label>
-        <textarea id="geminiCookie" placeholder="SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=..."></textarea>
-        <div class="hint" id="cookieHint">Sign in with Google (Gmail) on gemini.google.com, then Cookie Sync → Send cookies. This site never asks for your Google password. Also set GEMINI_COOKIE in Render (do not commit it).</div>
-      </div>
-      <button class="ghost" id="saveCookie" type="button">Save cookie</button>
-      <button class="ghost" id="clearCookie" type="button">Sign out cookie</button>
+      <div class="hint" id="cookieHint">Sign in with Google to connect this app. Google will ask which account to use. Cookies for chat, images, PDFs, video, and coding are collected automatically. This site never asks for your Google password.</div>
+      <button class="ghost" id="clearCookie" type="button" hidden>Sign out</button>
+      <textarea id="geminiCookie" hidden aria-hidden="true"></textarea>
 
       <h2>Endpoints</h2>
       <div class="endpoints">
@@ -487,21 +479,14 @@
   <div class="backdrop" id="backdrop"></div>
   <input type="file" id="file" accept="image/*,video/*,audio/*,application/pdf,text/*,.py,.js,.ts,.json,.md,.txt,.csv,.html,.css,.c,.cpp,.rs,.go" hidden multiple>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
-  <input type="file" id="cookieImport" accept="application/json,.json" hidden>
 
   <div class="modal" id="loginModal" role="dialog" aria-labelledby="loginTitle">
     <div class="modal-card">
-      <h2 id="loginTitle">Sign in with Google</h2>
-      <p id="loginBody">Install Cookie Sync once. After Gmail sign-in, cookies are collected automatically (images, PDF, video, coding). We never ask for your Google password.</p>
-      <ol class="login-steps">
-        <li>Download <b>Cookie Sync</b> (once), unzip, Load unpacked on <code>chrome://extensions</code>.</li>
-        <li>Click <b>Continue to Google</b> and sign in with Gmail.</li>
-        <li>Keep this tab open — cookies fill themselves. Then attach images, PDFs, video, or code.</li>
-      </ol>
+      <h2 id="loginTitle">Connect Google</h2>
+      <p id="loginBody">Google will ask which account should connect to gemini-web2api. Confirm access in that window. Cookies are collected automatically afterwards. We never ask for your Google password.</p>
       <div class="row">
         <button class="ghost" id="loginCancel" type="button">Close</button>
-        <button class="ghost" id="loginDownloadExt" type="button">Get Cookie Sync</button>
-        <button class="primary" id="loginContinue" type="button">Continue to Google</button>
+        <button class="primary" id="loginContinue" type="button">Continue with Google</button>
       </div>
     </div>
   </div>
@@ -557,14 +542,20 @@
       return v.indexOf("AIza") === 0 || v.indexOf("AQ.") === 0 || v.indexOf("ya29.") === 0 || v.indexOf("GOCSPX-") === 0;
     }
     var GOOGLE_KEY_MSG = "That looks like a Google AI Studio / Gemini API key. This server does not use those. Type sk-gemini (the Docker config password) instead.";
-    var GOOGLE_LOGIN = "https://accounts.google.com/ServiceLogin?hl=en&continue=" + encodeURIComponent("https://gemini.google.com/app");
-    var COOKIE_HINT_EMPTY = "Sign in with Google (Gmail) on gemini.google.com, then Cookie Sync → Send cookies. This site never asks for your Google password. Also set GEMINI_COOKIE in Render (do not commit it).";
-    var COOKIE_HINT_SAVED = "Signed in. Cookie saved in this browser and sent as X-Gemini-Cookie. Also set GEMINI_COOKIE in the Render dashboard so API clients work without the playground.";
+    var COOKIE_HINT_EMPTY = "Sign in with Google to connect this app. Google will ask which account to use. Cookies for chat, images, PDFs, video, and coding are collected automatically.";
+    var COOKIE_HINT_SAVED = "Connected. Gemini session cookies were collected automatically for this browser.";
+    var CHATS_KEY = "g2a.chats";
+    var cookieWaitTimer = null;
+    var cookieSyncPresent = false;
+    var googleClientId = "";
+    var authPopup = null;
+    var gsiClient = null;
 
     var state = {
       model: storageGet("g2a.model") || "gemini-3.6-flash",
       apiKey: storageGet("g2a.key") || "",
       geminiCookie: storageGet("g2a.cookie") || "",
+      googleEmail: storageGet("g2a.googleEmail") || "",
       authRequired: false,
       messages: [],
       images: [],
@@ -1019,16 +1010,6 @@
 
     function hideAuthModal() { $("authModal").classList.remove("show"); }
 
-    function cookieFromAuthObject(data) {
-      if (!data || typeof data !== "object") throw new Error("Not a JSON object");
-      if (typeof data.cookie === "string" && data.cookie.indexOf("=") !== -1) return data.cookie.trim();
-      throw new Error("gemini-auth.json has no cookie field");
-    }
-
-    function downloadExtension() {
-      window.location.href = "/extension.zip";
-    }
-
     function requestCookiesFromExtension() {
       try {
         window.postMessage({ source: "gemini-web2api", type: "request-cookies" }, window.location.origin);
@@ -1044,7 +1025,7 @@
           return;
         }
         requestCookiesFromExtension();
-      }, 2000);
+      }, 1500);
     }
 
     function stopCookieWait() {
@@ -1054,12 +1035,109 @@
       }
     }
 
-    function openGoogleSignIn() {
-      window.open(GOOGLE_LOGIN, "_blank", "noopener");
+    function popupFeatures() {
+      var w = 500, h = 720;
+      var left = Math.max(0, Math.round((window.screenX || 0) + ((window.outerWidth || 800) - w) / 2));
+      var top = Math.max(0, Math.round((window.screenY || 0) + ((window.outerHeight || 600) - h) / 2));
+      return "popup=yes,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top;
+    }
+
+    function loadGsi(cb) {
+      if (window.google && google.accounts && google.accounts.oauth2) {
+        cb();
+        return;
+      }
+      var existing = document.getElementById("gsiClient");
+      if (existing) {
+        existing.addEventListener("load", cb);
+        return;
+      }
+      var s = document.createElement("script");
+      s.id = "gsiClient";
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true;
+      s.onload = cb;
+      s.onerror = cb;
+      document.head.appendChild(s);
+    }
+
+    function openAuthPopup() {
+      try {
+        if (authPopup && !authPopup.closed) authPopup.close();
+      } catch (e) {}
+      authPopup = window.open("/auth/google", "google-signin", popupFeatures());
+    }
+
+    function onGoogleToken(tokenResponse) {
+      if (!tokenResponse || tokenResponse.error) {
+        openAuthPopup();
+        return;
+      }
+      finishGoogleIdentity({
+        access_token: tokenResponse.access_token || "",
+        credential: tokenResponse.credential || ""
+      });
+    }
+
+    function finishGoogleIdentity(payload) {
+      fetch("/auth/google/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload || {})
+      }).then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }); })
+        .then(function (out) {
+          if (out.res.ok && out.data && out.data.email) applyGoogleProfile(out.data);
+        })
+        .catch(function () {})
+        .finally(function () { startCookieWait(); });
+    }
+
+    function applyGoogleProfile(profile) {
+      state.googleEmail = (profile && profile.email) || state.googleEmail || "";
+      storageSet("g2a.googleEmail", state.googleEmail);
+      renderGoogleState();
+      $("loginBody").textContent = "Connected as " + (state.googleEmail || "Google") + ". Collecting Gemini cookies automatically…";
+    }
+
+    function renderGoogleState() {
+      var connected = !!(state.googleEmail || state.geminiCookie);
+      var label = $("googleSignInLabel");
+      if (label) label.textContent = connected
+        ? (state.googleEmail ? "Connected · " + state.googleEmail : "Connected")
+        : "Sign in with Google";
+      $("topSignIn").textContent = connected ? "Signed in" : "Sign in with Google";
+      $("clearCookie").hidden = !connected;
+      $("cookieHint").className = "hint";
+      $("cookieHint").textContent = state.geminiCookie
+        ? COOKIE_HINT_SAVED
+        : (state.googleEmail ? "Signed in as " + state.googleEmail + ". Finishing cookie collection…" : COOKIE_HINT_EMPTY);
+    }
+
+    function startConnect() {
+      showLoginModal();
+      $("loginBody").textContent = "Choose a Google account in the window that opens. Google will ask you to connect gemini-web2api.";
       startCookieWait();
-      $("loginBody").textContent = cookieSyncPresent
-        ? "Waiting for Gmail sign-in… keep this tab open. Cookies auto-fill for images, PDF, video, and coding."
-        : "Install Cookie Sync, then sign in. After Gmail login, cookies auto-fill this tab.";
+      if (googleClientId) {
+        loadGsi(function () {
+          try {
+            if (!(window.google && google.accounts && google.accounts.oauth2)) {
+              openAuthPopup();
+              return;
+            }
+            gsiClient = google.accounts.oauth2.initTokenClient({
+              client_id: googleClientId,
+              scope: "openid email profile",
+              prompt: "select_account",
+              callback: onGoogleToken
+            });
+            gsiClient.requestAccessToken();
+          } catch (e) {
+            openAuthPopup();
+          }
+        });
+        return;
+      }
+      openAuthPopup();
     }
 
     function showLoginModal() {
@@ -1074,8 +1152,11 @@
       state.geminiCookie = String(value || "").trim().replace(/\n/g, " ");
       $("geminiCookie").value = state.geminiCookie;
       storageSet("g2a.cookie", state.geminiCookie);
-      $("cookieHint").className = "hint";
-      $("cookieHint").textContent = state.geminiCookie ? COOKIE_HINT_SAVED : COOKIE_HINT_EMPTY;
+      if (state.geminiCookie) {
+        hideLoginModal();
+        stopCookieWait();
+      }
+      renderGoogleState();
     }
 
     function saveKey(value) {
@@ -1100,6 +1181,7 @@
         var res = await fetch("/health", { cache: "no-store" });
         var data = await res.json();
         state.authRequired = !!data.auth_required;
+        googleClientId = data.google_client_id || "";
         setModels(data.models && data.models.length ? data.models : FALLBACK_MODELS);
         if (data.default_model && FALLBACK_MODELS.indexOf(state.model) === -1) {
           state.model = data.default_model;
@@ -1113,9 +1195,9 @@
           showAuthModal("API key required");
         } else {
           setStatus("ok", "v" + (data.version || "1.1.0") + " live");
-          state.notice = (data.cookie_configured || state.geminiCookie)
+          state.notice = (data.cookie_configured || state.geminiCookie || state.googleEmail)
             ? ""
-            : "No Gemini cookie yet. Sign in with Google — Cookie Sync auto-collects cookies for images, PDF, video, and coding.";
+            : "Sign in with Google to connect this app. Cookies for images, PDFs, video, and coding are collected automatically.";
           renderThread();
         }
       } catch (err) {
@@ -1240,7 +1322,7 @@
         }
         assistant.pending = false;
         if (!assistant.content) {
-          assistant.error = "Gemini returned no text. Sign in with Google so cookies auto-collect, or set GEMINI_COOKIE on Render.";
+          assistant.error = "Gemini returned no text. Sign in with Google so this app can collect the session automatically, or set GEMINI_COOKIE on Render.";
         }
         renderThread();
       } catch (err) {
@@ -1262,7 +1344,11 @@
     function bind() {
       $("apiKey").value = state.apiKey;
       $("geminiCookie").value = state.geminiCookie;
+      renderGoogleState();
       if (state.geminiCookie) saveCookie(state.geminiCookie);
+      fetch("/auth/session", { cache: "no-store" }).then(function (res) { return res.json(); }).then(function (data) {
+        if (data && data.email) applyGoogleProfile(data);
+      }).catch(function () {});
       if (FALLBACK_MODELS.indexOf(state.model) !== -1) $("modelSelect").value = state.model;
       $("modelSelect").addEventListener("change", function (e) {
         state.model = e.target.value;
@@ -1275,60 +1361,40 @@
         state.notice = state.apiKey ? "Server password saved. Try sending a message." : "Password cleared.";
         renderThread();
       });
-      $("geminiCookie").addEventListener("input", function (e) { saveCookie(e.target.value); });
-      $("saveCookie").addEventListener("click", function () {
-        saveCookie($("geminiCookie").value);
-        state.notice = state.geminiCookie
-          ? "Gemini cookie saved in this browser. Also add GEMINI_COOKIE in the Render Environment tab so other clients work."
-          : "Cookie cleared.";
-        renderThread();
-      });
       $("clearCookie").addEventListener("click", function () {
         saveCookie("");
-        state.notice = "Signed out cookie for this browser.";
+        state.googleEmail = "";
+        storageSet("g2a.googleEmail", "");
+        fetch("/auth/logout", { method: "POST" }).catch(function () {});
+        renderGoogleState();
+        state.notice = "Signed out of this browser.";
         renderThread();
       });
-      $("googleSignIn").addEventListener("click", showLoginModal);
-      $("topSignIn").addEventListener("click", showLoginModal);
+      $("googleSignIn").addEventListener("click", startConnect);
+      $("topSignIn").addEventListener("click", startConnect);
       $("loginCancel").addEventListener("click", hideLoginModal);
-      $("loginContinue").addEventListener("click", function () {
-        openGoogleSignIn();
-      });
-      $("loginDownloadExt").addEventListener("click", downloadExtension);
-      $("downloadExt").addEventListener("click", downloadExtension);
-      $("importCookieBtn").addEventListener("click", function () { $("cookieImport").click(); });
-      $("cookieImport").addEventListener("change", function (e) {
-        var file = e.target.files && e.target.files[0];
-        if (!file) return;
-        var reader = new FileReader();
-        reader.onload = function () {
-          try {
-            saveCookie(cookieFromAuthObject(JSON.parse(reader.result)));
-            hideLoginModal();
-            state.notice = "Imported gemini-auth.json. Cookie saved in this browser.";
-            renderThread();
-          } catch (err) {
-            state.notice = "Could not import cookies: " + String(err && err.message || err);
-            renderThread();
-          }
-        };
-        reader.readAsText(file);
-        e.target.value = "";
-      });
+      $("loginContinue").addEventListener("click", startConnect);
       window.addEventListener("message", function (e) {
         if (e.origin !== window.location.origin) return;
         var d = e.data || {};
+        if (d.source === "gemini-web2api-auth" && d.type === "signed-in") {
+          applyGoogleProfile(d);
+          startCookieWait();
+          hideLoginModal();
+          state.notice = "Connected to Google as " + (d.email || "your account") + ". Cookies are collected automatically.";
+          renderThread();
+        }
         if (d.source !== "gemini-cookie-sync") return;
         if (d.type === "hello") cookieSyncPresent = true;
         if (typeof d.cookie === "string" && d.cookie.indexOf("=") !== -1) {
           saveCookie(d.cookie);
           stopCookieWait();
           hideLoginModal();
-          state.notice = "Signed in. Cookies auto-collected for images, PDF, video, and coding.";
+          state.notice = "Signed in. Cookies collected automatically for images, PDFs, video, and coding.";
           renderThread();
         }
       });
-      requestCookiesFromExtension();
+            requestCookiesFromExtension();
       $("toggleKey").addEventListener("click", function () {
         var el = $("apiKey");
         el.type = el.type === "password" ? "text" : "password";

@@ -22,6 +22,7 @@ from .multimodal import (
     upload_image,
 )
 from . import __version__
+from . import google_auth
 
 _PLAYGROUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -84,14 +85,34 @@ class GeminiHandler(BaseHTTPRequestHandler):
         client_ip = self.client_address[0] if self.client_address else "-"
         log(f"{client_ip} {fmt % args}")
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, extra_headers=None):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_html(self, html: str, status=200, extra_headers=None):
+        body = html.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _secure_cookies(self) -> bool:
+        proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+        host = self.headers.get("Host") or ""
+        return proto == "https" or "onrender.com" in host or "e2b.app" in host
 
     def _route_path(self):
         return self.path.split("?", 1)[0]
@@ -107,6 +128,7 @@ class GeminiHandler(BaseHTTPRequestHandler):
             "default_model": CONFIG.get("default_model", "gemini-3.6-flash"),
             "auth_required": bool(keys),
             "cookie_configured": bool(cookie_str),
+            "google_client_id": google_auth.client_id(),
         }
 
     def _serve_playground(self):
@@ -144,6 +166,42 @@ class GeminiHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _google_session_headers(self, profile: dict) -> dict:
+        token = google_auth.encode_session(profile)
+        return {"Set-Cookie": google_auth.session_set_cookie(token, self._secure_cookies())}
+
+    def _handle_google_callback(self):
+        from urllib.parse import parse_qs
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        flat = {key: (values[0] if values else "") for key, values in query.items()}
+        try:
+            profile = google_auth.profile_from_callback(self, flat)
+        except Exception as exc:
+            self._send_html(
+                "<!DOCTYPE html><html><body><p>"
+                + str(exc).replace("<", "")
+                + "</p><p><a href='/'>Back</a></p></body></html>",
+                400,
+            )
+            return
+        self._send_html(google_auth.popup_done_html(profile), extra_headers=self._google_session_headers(profile))
+
+    def _handle_google_token(self, body: bytes):
+        req = self._parse_body(body) or {}
+        try:
+            profile = google_auth.profile_from_browser_payload(req)
+        except Exception as exc:
+            self.send_json({"error": {"message": str(exc)}}, 401)
+            return
+        self.send_json(
+            {
+                "connected": True,
+                "email": profile.get("email") or "",
+                "name": profile.get("name") or "",
+            },
+            extra_headers=self._google_session_headers(profile),
+        )
 
     def _start_sse(self):
         self.send_response(200)
@@ -255,6 +313,25 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json(self._health_payload())
             elif path in ("/", "/playground", "/index.html"):
                 self._serve_playground()
+            elif path == "/auth/google":
+                self.send_response(302)
+                self.send_header("Location", google_auth.authorization_url(self))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            elif path == "/auth/google/callback":
+                self._handle_google_callback()
+            elif path == "/auth/session":
+                profile = google_auth.read_session_cookie(self.headers.get("Cookie", ""))
+                self.send_json({
+                    "connected": bool(profile),
+                    "email": (profile or {}).get("email") or "",
+                    "name": (profile or {}).get("name") or "",
+                })
+            elif path == "/auth/logout":
+                self.send_json(
+                    {"ok": True},
+                    extra_headers={"Set-Cookie": google_auth.session_clear_cookie(self._secure_cookies())},
+                )
             elif path in ("/extension.zip", "/gemini-cookie-sync-extension.zip"):
                 self._serve_extension_zip()
             else:
@@ -266,17 +343,28 @@ class GeminiHandler(BaseHTTPRequestHandler):
         from .gemini import clear_request_cookie, set_request_cookie
         set_request_cookie(self.headers.get("X-Gemini-Cookie") or "")
         try:
-            if self.path.startswith("/v1") and not self._authorized():
+            path = self._route_path()
+            if path in ("/auth/google/token", "/auth/logout"):
+                body = self._read_request_body()
+                if path == "/auth/logout":
+                    self.send_json(
+                        {"ok": True},
+                        extra_headers={"Set-Cookie": google_auth.session_clear_cookie(self._secure_cookies())},
+                    )
+                else:
+                    self._handle_google_token(body)
+                return
+            if path.startswith("/v1") and not self._authorized():
                 self._send_unauthorized()
                 return
             body = self._read_request_body()
-            if self.path == "/v1/chat/completions":
+            if path == "/v1/chat/completions":
                 self._handle_chat(body)
-            elif self.path == "/v1/responses":
+            elif path == "/v1/responses":
                 self._handle_responses(body)
-            elif ":streamGenerateContent" in self.path:
+            elif ":streamGenerateContent" in path:
                 self._handle_google_generate(body, stream=True)
-            elif ":generateContent" in self.path:
+            elif ":generateContent" in path:
                 self._handle_google_generate(body, stream=False)
             else:
                 self.send_json({"error": "not found"}, 404)

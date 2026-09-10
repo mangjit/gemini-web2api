@@ -249,11 +249,14 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b'id="input"', body)
         self.assertIn(b'id="geminiCookie"', body)
         self.assertIn(b'id="googleSignIn"', body)
-        self.assertIn(b'id="cookieImport"', body)
         self.assertIn(b"gemini-cookie-sync", body)
         self.assertIn(b"Sign in with Google", body)
         self.assertIn(b"request-cookies", body)
+        self.assertIn(b"/auth/google", body)
         self.assertIn(b"application/pdf", body)
+        self.assertNotIn(b"Get Cookie Sync", body)
+        self.assertNotIn(b'id="cookieImport"', body)
+        self.assertNotIn(b'id="downloadExt"', body)
         self.assertIn(b'id="chatList"', body)
         self.assertIn(b'id="exportChats"', body)
         self.assertIn(b"sk-gemini", body)
@@ -291,6 +294,24 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertTrue(data["auth_required"])
         self.assertIn("models", data)
         self.assertIn("default_model", data)
+        self.assertIn("google_client_id", data)
+
+    def test_auth_google_redirects_to_account_chooser(self):
+        status, headers, _ = self.get("/auth/google")
+        self.assertEqual(status, 302)
+        self.assertIn("accounts.google.com", headers.get("Location", ""))
+
+    def test_auth_session_anonymous(self):
+        status, _, body = self.get("/auth/session")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertFalse(data["connected"])
+
+    @mock.patch("gemini_web2api.google_auth._http_json", side_effect=RuntimeError("bad token"))
+    def test_auth_google_token_rejects_garbage(self, _http_json):
+        status, _, body = self.post_json("/auth/google/token", {"credential": "not-a-jwt"})
+        self.assertEqual(status, 401)
+        self.assertIn("error", json.loads(body))
 
     def test_health_auth_required_false_when_no_keys(self):
         CONFIG["api_keys"] = []

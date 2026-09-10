@@ -18,6 +18,8 @@ DEFAULT_CONFIG = {
     "proxy": None,
     "api_keys": [],
     "temporary_chats": False,
+    "google_client_id": None,
+    "google_client_secret": None,
 }
 
 CONFIG = dict(DEFAULT_CONFIG)
