@@ -545,7 +545,7 @@
     var COOKIE_HINT_EMPTY = "Not signed in.";
     var COOKIE_HINT_SAVED = "Signed in.";
     var CHATS_KEY = "g2a.chats";
-    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/ServiceLogin?hl=en";
+    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/ServiceLogin?hl=en&continue=" + encodeURIComponent("https://gemini.google.com/app");
     var cookieWaitTimer = null;
     var cookieSyncPresent = false;
     var googleClientId = "";
@@ -556,7 +556,6 @@
       apiKey: storageGet("g2a.key") || "",
       geminiCookie: storageGet("g2a.cookie") || "",
       googleEmail: storageGet("g2a.googleEmail") || "",
-      signedIn: storageGet("g2a.signedIn") === "1",
       authRequired: false,
       messages: [],
       images: [],
@@ -1038,7 +1037,7 @@
     }
 
     function isSignedIn() {
-      return !!(state.signedIn || state.geminiCookie || state.googleEmail);
+      return !!(state.geminiCookie && state.geminiCookie.indexOf("=") !== -1);
     }
 
     function popupFeatures() {
@@ -1059,14 +1058,22 @@
     }
 
     function finishConnectAttempt(fromPopupClose) {
-      stopCookieWait();
       hideLoginModal();
-      if (fromPopupClose) {
-        state.signedIn = true;
-        storageSet("g2a.signedIn", "1");
+      if (fromPopupClose && !isSignedIn()) {
+        startCookieWait();
+        setTimeout(function () {
+          stopCookieWait();
+          renderGoogleState();
+          state.notice = isSignedIn()
+            ? "Signed in. You can send images now."
+            : "Not signed in. Finish Google email and password, then close that window.";
+          renderThread();
+        }, 2500);
+        return;
       }
+      stopCookieWait();
       renderGoogleState();
-      state.notice = isSignedIn() ? "Signed in." : "Not signed in.";
+      state.notice = isSignedIn() ? "Signed in. You can send images now." : "Not signed in.";
       renderThread();
     }
 
@@ -1134,7 +1141,10 @@
       state.geminiCookie = String(value || "").trim().replace(/\n/g, " ");
       $("geminiCookie").value = state.geminiCookie;
       storageSet("g2a.cookie", state.geminiCookie);
-      if (state.geminiCookie) stopCookieWait();
+      if (state.geminiCookie) {
+        stopCookieWait();
+        state.notice = "Signed in. You can send images now.";
+      }
       renderGoogleState();
     }
 
@@ -1343,9 +1353,7 @@
       $("clearCookie").addEventListener("click", function () {
         saveCookie("");
         state.googleEmail = "";
-        state.signedIn = false;
         storageSet("g2a.googleEmail", "");
-        storageSet("g2a.signedIn", "");
         fetch("/auth/logout", { method: "POST" }).catch(function () {});
         renderGoogleState();
         state.notice = "Signed out of this browser.";

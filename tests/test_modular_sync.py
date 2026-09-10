@@ -254,7 +254,6 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b"request-cookies", body)
         self.assertIn(b"Signed in", body)
         self.assertIn(b"accounts.google.com", body)
-        self.assertNotIn(b"gemini.google.com/app", body)
         self.assertIn(b"application/pdf", body)
         self.assertNotIn(b"Get Cookie Sync", body)
         self.assertNotIn(b'id="cookieImport"', body)

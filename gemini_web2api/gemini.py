@@ -307,10 +307,8 @@ def empty_upstream_message(raw: str = "", has_files: bool = False) -> str:
     blob = (raw or "").lower()
     if has_files or "1100" in (raw or ""):
         return (
-            "Gemini returned no text for this image. Image chat needs a signed-in "
-            "gemini.google.com cookie (anonymous uploads are rejected). "
-            "Set GEMINI_COOKIE or paste the cookie in the playground. "
-            "If plain text chat already works, refresh the cookie from gemini.google.com and try a smaller PNG/JPEG."
+            "Image chat needs a signed-in Gemini cookie. Click Sign in with Google, "
+            "finish email and password, then try the image again."
         )
     if "recaptcha" in blob or "captcha" in blob:
         return (
