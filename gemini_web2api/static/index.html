@@ -545,7 +545,7 @@
     var COOKIE_HINT_EMPTY = "Not signed in.";
     var COOKIE_HINT_SAVED = "Signed in.";
     var CHATS_KEY = "g2a.chats";
-    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/AddSession?hl=en&continue=" + encodeURIComponent("https://myaccount.google.com/");
+    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/ServiceLogin?hl=en";
     var cookieWaitTimer = null;
     var cookieSyncPresent = false;
     var googleClientId = "";
@@ -1042,10 +1042,7 @@
     }
 
     function popupFeatures() {
-      var w = 480, h = 680;
-      var left = Math.max(0, Math.round((window.screenX || 0) + ((window.outerWidth || 800) - w) / 2));
-      var top = Math.max(0, Math.round((window.screenY || 0) + ((window.outerHeight || 600) - h) / 2));
-      return "popup=yes,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top;
+      return "width=900,height=720";
     }
 
     function watchPopup() {
@@ -1117,7 +1114,7 @@
       if ($("googleSignInLabel")) $("googleSignInLabel").textContent = "Signing in…";
       startCookieWait();
       try { if (authPopup && !authPopup.closed) authPopup.close(); } catch (e) {}
-      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin", popupFeatures());
+      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin");
       if (!authPopup) {
         state.notice = "Allow popups for this site, then click Sign in with Google again.";
         renderGoogleState();
