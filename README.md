@@ -117,7 +117,7 @@ This project never asks for your Gmail password.
 
 ### Playground (including Render)
 
-Click **Sign in with Google**. A Google window opens for email and password. Close that window when you are done. This app shows **Signed in** only when a Gemini cookie was collected.
+Click **Sign in with Google**. A Google window opens to add credentials (email, then password) even if this browser is already signed into Google Search. Close that window when you are done. This app shows **Signed in** only when a Gemini cookie was collected.
 
 Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
 

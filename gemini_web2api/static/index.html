@@ -545,7 +545,7 @@
     var COOKIE_HINT_EMPTY = "Not signed in.";
     var COOKIE_HINT_SAVED = "Signed in.";
     var CHATS_KEY = "g2a.chats";
-    var GOOGLE_LOGIN_POPUP = "/auth/connect";
+    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/v3/signin/identifier?hl=en&flowName=GlifWebSignIn&flowEntry=AddSession&continue=" + encodeURIComponent("https://accounts.google.com/");
     var cookieWaitTimer = null;
     var cookieSyncPresent = false;
     var googleClientId = "";
@@ -1050,23 +1050,19 @@
 
     function watchPopup() {
       if (window._popupWatch) clearInterval(window._popupWatch);
+      var closedTicks = 0;
       window._popupWatch = setInterval(function () {
         var closed = true;
         try { closed = !authPopup || authPopup.closed; } catch (e) { closed = true; }
-        if (!closed) {
-          try {
-            var href = (authPopup.location && authPopup.location.href) || "";
-            if (href.indexOf(window.location.origin) === 0 && /\/auth\/(connected|google\/callback)/.test(href)) {
-              authPopup.close();
-              closed = true;
-            }
-          } catch (e) {}
-        }
         if (closed) {
+          closedTicks += 1;
+          if (closedTicks < 3) return;
           clearInterval(window._popupWatch);
           window._popupWatch = null;
           finishConnectAttempt(true);
+          return;
         }
+        closedTicks = 0;
       }, 400);
     }
 
@@ -1141,6 +1137,8 @@
         renderThread();
         return;
       }
+      state.notice = "Enter your Google email and password in that window, then close it.";
+      renderThread();
       watchPopup();
     }
 

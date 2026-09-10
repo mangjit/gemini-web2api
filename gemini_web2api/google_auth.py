@@ -55,17 +55,19 @@ def _pkce() -> tuple:
     return verifier, challenge
 
 
-def service_login_url(handler) -> str:
-    """Full Google email-then-password page.
+def service_login_url(handler=None) -> str:
+    """Add-account Google login (email then password).
 
-    Google returns HTTP 400 if ``continue`` is not a google.com URL, so this
-    never sends users back to this app that way. Never opens Gemini.
+    Must not use continue=this-app (Google HTTP 400), continue=www.google.com
+    (skips login and opens Search), or gemini.google.com (leaves the user there).
     """
     del handler
-    return "https://accounts.google.com/ServiceLogin?" + urllib.parse.urlencode(
+    return "https://accounts.google.com/v3/signin/identifier?" + urllib.parse.urlencode(
         {
             "hl": "en",
-            "continue": "https://www.google.com/",
+            "flowName": "GlifWebSignIn",
+            "flowEntry": "AddSession",
+            "continue": "https://accounts.google.com/",
         }
     )
 

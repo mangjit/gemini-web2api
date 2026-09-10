@@ -253,8 +253,10 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b"Sign in with Google", body)
         self.assertIn(b"request-cookies", body)
         self.assertIn(b"Signed in", body)
-        self.assertIn(b"/auth/connect", body)
+        self.assertIn(b"AddSession", body)
+        self.assertIn(b"accounts.google.com", body)
         self.assertIn(b"width=1100", body)
+        self.assertNotIn(b"www.google.com/", body)
         self.assertNotIn(b"gemini.google.com/app", body)
         self.assertIn(b"application/pdf", body)
         self.assertNotIn(b"Get Cookie Sync", body)
@@ -305,14 +307,15 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertNotIn("gemini.google.com", (headers.get("Location") or ""))
         self.assertIn("not configured", body.decode())
 
-    def test_auth_connect_opens_google_login_not_gemini(self):
+    def test_auth_connect_opens_add_session_not_search(self):
         from urllib.parse import unquote
 
         status, headers, _ = self.get("/auth/connect")
         self.assertEqual(status, 302)
         location = unquote(headers.get("Location") or "")
-        self.assertIn("accounts.google.com/ServiceLogin", location)
-        self.assertIn("www.google.com", location)
+        self.assertIn("accounts.google.com", location)
+        self.assertIn("AddSession", location)
+        self.assertNotIn("www.google.com", location)
         self.assertNotIn("/auth/connected", location)
         self.assertNotIn("gemini.google.com", location)
 
