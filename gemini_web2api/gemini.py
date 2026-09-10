@@ -172,7 +172,8 @@ def _attachment_entries(file_refs: list) -> list:
     """Build inner[0][3] in the current Gemini Web shape.
 
     Browser capture: [[[path, kind, null, mime], filename, null×6, [0]], ...]
-    kind 1 = image. The old [[null, null, path]] shape is ignored upstream,
+    kind 1 = image, 2 = video, 3 = audio, 0 = PDF/code. The old [[null, null, path]]
+    shape is ignored upstream,
     which produced empty replies for image chats.
     """
     entries = []
@@ -181,7 +182,8 @@ def _attachment_entries(file_refs: list) -> list:
             ref = item.get("ref") or item.get("path") or ""
             name = item.get("name") or item.get("filename") or "image.png"
             mime = item.get("mime") or item.get("mime_type") or "image/png"
-            kind = int(item.get("kind") or 1)
+            kind = item.get("kind")
+            kind = 1 if kind is None else int(kind)
         else:
             ref, name, mime, kind = item, "image.png", "image/png", 1
         if not ref:

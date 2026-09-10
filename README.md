@@ -120,7 +120,7 @@ Google OAuth / AI Studio API keys **cannot** issue these cookies (`SID`, `SAPISI
 1. Open the playground and click **Sign in with Google**.
 2. Sign in with Gmail on Google’s real page (gemini.google.com).
 3. Click **Get Cookie Sync**, unzip the download, then Load unpacked on `chrome://extensions`.
-4. Keep the playground tab open. Click the extension → **Send cookies to playground**.
+4. Keep the playground tab open. After Gmail sign-in, **cookies fill automatically** (images, PDF, video, coding). Manual **Send now** is only a backup.
 
 Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
 
@@ -355,7 +355,7 @@ resp = client.chat.completions.create(
 
 ## Limitations
 
-- **Image chat requires a cookie**: Gemini rejects anonymous image attachments. Sign in with Google (Cookie Sync) or set `GEMINI_COOKIE`. Text-only chat can work without it; images cannot.
+- **Files need a cookie**: Images, PDFs, and video uploads are rejected anonymously. Sign in with Google (Cookie Sync auto-collects cookies) or set `GEMINI_COOKIE`. Text/coding can work without it; files cannot.
 - **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.

@@ -298,6 +298,11 @@
     .attach-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 8px 8px; }
     .attach { position: relative; width: 56px; height: 56px; }
     .attach img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+    .attach .file-chip {
+      width: 100%; height: 100%; border-radius: 10px; border: 1px solid var(--line);
+      background: #0a101c; display: grid; place-items: center; font-size: 9px;
+      text-align: center; padding: 4px; color: var(--muted); overflow: hidden;
+    }
     .attach button {
       position: absolute; top: -6px; right: -6px;
       width: 18px; height: 18px; border-radius: 50%;
@@ -466,7 +471,7 @@
         <div class="composer">
           <div class="attach-row" id="attachRow" hidden></div>
           <div class="composer-row">
-            <button class="icon-btn" id="attachBtn" type="button" title="Attach image" aria-label="Attach image">＋</button>
+            <button class="icon-btn" id="attachBtn" type="button" title="Attach image, PDF, video, or code" aria-label="Attach file">＋</button>
             <textarea id="input" rows="1" placeholder="Message Gemini…"></textarea>
             <button class="send" id="sendBtn" type="button" aria-label="Send">➤</button>
             <button class="stop" id="stopBtn" type="button" hidden aria-label="Stop">■</button>
@@ -480,19 +485,18 @@
     </main>
   </div>
   <div class="backdrop" id="backdrop"></div>
-  <input type="file" id="file" accept="image/*" hidden multiple>
+  <input type="file" id="file" accept="image/*,video/*,audio/*,application/pdf,text/*,.py,.js,.ts,.json,.md,.txt,.csv,.html,.css,.c,.cpp,.rs,.go" hidden multiple>
   <input type="file" id="importFile" accept="application/json,.json" hidden>
   <input type="file" id="cookieImport" accept="application/json,.json" hidden>
 
   <div class="modal" id="loginModal" role="dialog" aria-labelledby="loginTitle">
     <div class="modal-card">
       <h2 id="loginTitle">Sign in with Google</h2>
-      <p>Google will not give this playground Gemini cookies through OAuth. Sign in on Google’s real page with Gmail, then send cookies here. We never ask for your Google password.</p>
+      <p id="loginBody">Install Cookie Sync once. After Gmail sign-in, cookies are collected automatically (images, PDF, video, coding). We never ask for your Google password.</p>
       <ol class="login-steps">
-        <li>Click <b>Continue to Google</b> — Gemini’s login opens.</li>
-        <li>Sign in with your Gmail account there.</li>
-        <li>Download <b>Cookie Sync</b>, unzip, then Load unpacked on <code>chrome://extensions</code>.</li>
-        <li>Keep this playground tab open. Click the extension → <b>Send cookies to playground</b>.</li>
+        <li>Download <b>Cookie Sync</b> (once), unzip, Load unpacked on <code>chrome://extensions</code>.</li>
+        <li>Click <b>Continue to Google</b> and sign in with Gmail.</li>
+        <li>Keep this tab open — cookies fill themselves. Then attach images, PDFs, video, or code.</li>
       </ol>
       <div class="row">
         <button class="ghost" id="loginCancel" type="button">Close</button>
@@ -901,8 +905,13 @@
       if (state.notice) html += '<div class="banner">' + escapeHtml(state.notice) + "</div>";
       state.messages.forEach(function (m, idx) {
         var text = messageText(m);
-        var imgs = typeof m.content === "string" ? [] : (m.content || []).filter(function (p) { return p.type === "image_url"; });
-        var thumbs = imgs.length ? '<div class="thumbs">' + imgs.map(function (p) { return '<img src="' + p.image_url.url + '" alt="">'; }).join("") + "</div>" : "";
+        var parts = typeof m.content === "string" ? [] : (m.content || []);
+        var imgs = parts.filter(function (p) { return p.type === "image_url" && p.image_url && String(p.image_url.url || "").indexOf("data:image/") === 0; });
+        var files = parts.filter(function (p) { return p.type === "input_file" || p.type === "input_document"; });
+        var thumbs = (imgs.length || files.length) ? '<div class="thumbs">' +
+          imgs.map(function (p) { return '<img src="' + p.image_url.url + '" alt="">'; }).join("") +
+          files.map(function (p) { return '<span class="file-chip">' + escapeHtml(p.filename || "file") + "</span>"; }).join("") +
+          "</div>" : "";
         var body = m.role === "assistant" ? renderMarkdown(text || (m.pending ? "" : "")) : escapeHtml(text || "").replace(/\n/g, "<br>");
         if (m.pending && !text) body += '<span class="cursor"></span><span> waiting for Gemini…</span>';
         else if (m.pending) body += '<span class="cursor"></span>';
@@ -931,12 +940,36 @@
       el.style.height = Math.min(el.scrollHeight, 160) + "px";
     }
 
+    function guessMime(name) {
+      name = String(name || "").toLowerCase();
+      if (name.endsWith(".pdf")) return "application/pdf";
+      if (name.endsWith(".mp4")) return "video/mp4";
+      if (name.endsWith(".webm")) return "video/webm";
+      if (name.endsWith(".mp3")) return "audio/mpeg";
+      if (name.endsWith(".py")) return "text/x-python";
+      if (name.endsWith(".js")) return "text/javascript";
+      if (name.endsWith(".ts")) return "text/typescript";
+      if (name.endsWith(".json")) return "application/json";
+      if (name.endsWith(".md")) return "text/markdown";
+      if (name.endsWith(".txt")) return "text/plain";
+      return "";
+    }
+
+    function isAttachable(file) {
+      var mime = (file && file.type) || guessMime(file && file.name);
+      if (!mime) return /\.(png|jpe?g|gif|webp|pdf|mp4|webm|mov|mp3|wav|txt|md|py|js|ts|json|html|css|c|cpp|rs|go|csv)$/i.test(file.name || "");
+      return /^(image|video|audio|text)\//.test(mime) || mime === "application/pdf" || mime === "application/json";
+    }
+
     function renderAttaches() {
       var row = $("attachRow");
       if (!state.images.length) { row.hidden = true; row.innerHTML = ""; return; }
       row.hidden = false;
       row.innerHTML = state.images.map(function (img, i) {
-        return '<div class="attach"><img src="' + img.url + '" alt=""><button type="button" data-x="' + i + '" aria-label="Remove">×</button></div>';
+        var inner = (img.mime || "").indexOf("image/") === 0
+          ? '<img src="' + img.url + '" alt="">'
+          : '<div class="file-chip">' + escapeHtml(img.name || "file") + "</div>";
+        return '<div class="attach">' + inner + '<button type="button" data-x="' + i + '" aria-label="Remove">×</button></div>';
       }).join("");
       row.querySelectorAll("button").forEach(function (b) {
         b.onclick = function () {
@@ -947,15 +980,21 @@
     }
 
     function addImageFile(file) {
-      if (!file || !file.type || file.type.indexOf("image/") !== 0) return;
-      if (file.size > 8 * 1024 * 1024) {
-        state.notice = "Image is larger than 8MB.";
+      if (!file || !isAttachable(file)) {
+        state.notice = "Attach an image, PDF, video, audio, or code/text file.";
+        renderThread();
+        return;
+      }
+      var mime = file.type || guessMime(file.name) || "application/octet-stream";
+      var max = mime.indexOf("video/") === 0 ? 25 * 1024 * 1024 : 12 * 1024 * 1024;
+      if (file.size > max) {
+        state.notice = "File is too large (max 12MB, 25MB for video).";
         renderThread();
         return;
       }
       var reader = new FileReader();
       reader.onload = function () {
-        state.images.push({ url: reader.result, name: file.name });
+        state.images.push({ url: reader.result, name: file.name, mime: mime });
         renderAttaches();
       };
       reader.readAsDataURL(file);
@@ -964,7 +1003,10 @@
     function userContent(text) {
       if (!state.images.length) return text;
       return [{ type: "text", text: text }].concat(state.images.map(function (img) {
-        return { type: "image_url", image_url: { url: img.url } };
+        if ((img.mime || "").indexOf("image/") === 0) {
+          return { type: "image_url", image_url: { url: img.url } };
+        }
+        return { type: "input_file", filename: img.name, mime_type: img.mime, file_data: img.url };
       }));
     }
 
@@ -987,12 +1029,46 @@
       window.location.href = "/extension.zip";
     }
 
-    function openGoogleSignIn() {
-      window.open(GOOGLE_LOGIN, "_blank", "noopener");
+    function requestCookiesFromExtension() {
+      try {
+        window.postMessage({ source: "gemini-web2api", type: "request-cookies" }, window.location.origin);
+      } catch (e) {}
     }
 
-    function showLoginModal() { $("loginModal").classList.add("show"); }
-    function hideLoginModal() { $("loginModal").classList.remove("show"); }
+    function startCookieWait() {
+      if (cookieWaitTimer) clearInterval(cookieWaitTimer);
+      requestCookiesFromExtension();
+      cookieWaitTimer = setInterval(function () {
+        if (state.geminiCookie) {
+          stopCookieWait();
+          return;
+        }
+        requestCookiesFromExtension();
+      }, 2000);
+    }
+
+    function stopCookieWait() {
+      if (cookieWaitTimer) {
+        clearInterval(cookieWaitTimer);
+        cookieWaitTimer = null;
+      }
+    }
+
+    function openGoogleSignIn() {
+      window.open(GOOGLE_LOGIN, "_blank", "noopener");
+      startCookieWait();
+      $("loginBody").textContent = cookieSyncPresent
+        ? "Waiting for Gmail sign-in… keep this tab open. Cookies auto-fill for images, PDF, video, and coding."
+        : "Install Cookie Sync, then sign in. After Gmail login, cookies auto-fill this tab.";
+    }
+
+    function showLoginModal() {
+      $("loginModal").classList.add("show");
+      requestCookiesFromExtension();
+    }
+    function hideLoginModal() {
+      $("loginModal").classList.remove("show");
+    }
 
     function saveCookie(value) {
       state.geminiCookie = String(value || "").trim().replace(/\n/g, " ");
@@ -1039,7 +1115,7 @@
           setStatus("ok", "v" + (data.version || "1.1.0") + " live");
           state.notice = (data.cookie_configured || state.geminiCookie)
             ? ""
-            : "No Gemini cookie yet. Click Sign in with Google (Gmail), then Cookie Sync → Send cookies. Or set GEMINI_COOKIE on Render.";
+            : "No Gemini cookie yet. Sign in with Google — Cookie Sync auto-collects cookies for images, PDF, video, and coding.";
           renderThread();
         }
       } catch (err) {
@@ -1164,7 +1240,7 @@
         }
         assistant.pending = false;
         if (!assistant.content) {
-          assistant.error = "Gemini returned no text. Sign in with Google, then send cookies from Cookie Sync, or set GEMINI_COOKIE on Render. Datacenter IPs are often blocked.";
+          assistant.error = "Gemini returned no text. Sign in with Google so cookies auto-collect, or set GEMINI_COOKIE on Render.";
         }
         renderThread();
       } catch (err) {
@@ -1243,13 +1319,16 @@
         if (e.origin !== window.location.origin) return;
         var d = e.data || {};
         if (d.source !== "gemini-cookie-sync") return;
+        if (d.type === "hello") cookieSyncPresent = true;
         if (typeof d.cookie === "string" && d.cookie.indexOf("=") !== -1) {
           saveCookie(d.cookie);
+          stopCookieWait();
           hideLoginModal();
-          state.notice = "Signed in with Google. Gemini cookies were saved in this browser (not sent to git).";
+          state.notice = "Signed in. Cookies auto-collected for images, PDF, video, and coding.";
           renderThread();
         }
       });
+      requestCookiesFromExtension();
       $("toggleKey").addEventListener("click", function () {
         var el = $("apiKey");
         el.type = el.type === "password" ? "text" : "password";

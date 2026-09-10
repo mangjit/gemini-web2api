@@ -76,6 +76,21 @@ def _image_from_url(url: str, mime: str = None):
     return url, mime or "image/png"
 
 
+def _file_label(mime: str, name: str = "") -> str:
+    mime = (mime or "").lower()
+    if mime.startswith("image/"):
+        return "[Image attached]"
+    if mime.startswith("video/"):
+        return "[Video attached]"
+    if mime.startswith("audio/"):
+        return "[Audio attached]"
+    if mime == "application/pdf":
+        return "[PDF attached]"
+    if name:
+        return f"[File attached: {name}]"
+    return "[File attached]"
+
+
 def _image_from_part(part: dict):
     part_type = part.get("type")
     if part_type == "image_url":
@@ -83,15 +98,15 @@ def _image_from_part(part: dict):
         if isinstance(image_url, dict):
             return _image_from_url(image_url.get("url"), image_url.get("mime_type"))
         return _image_from_url(image_url)
-    if part_type in ("input_image", "image"):
-        image_url = part.get("image_url") or part.get("url")
+    if part_type in ("input_image", "image", "input_file", "input_document", "file", "file_url"):
+        image_url = part.get("image_url") or part.get("url") or part.get("file_url") or part.get("file_data")
         if isinstance(image_url, dict):
-            return _image_from_url(image_url.get("url"), image_url.get("mime_type"))
+            return _image_from_url(image_url.get("url") or image_url.get("data"), image_url.get("mime_type") or part.get("mime_type"))
         if image_url:
-            return _image_from_url(image_url, part.get("mime_type"))
+            return _image_from_url(image_url, part.get("mime_type") or part.get("media_type"))
         image_data = part.get("data") or part.get("base64")
         if isinstance(image_data, str):
-            mime = part.get("mime_type") or part.get("media_type") or "image/png"
+            mime = part.get("mime_type") or part.get("media_type") or "application/octet-stream"
             if image_data.startswith("data:"):
                 return _decode_data_url(image_data)
             try:
@@ -142,7 +157,8 @@ def messages_to_prompt(messages: list, tools: list = None, tool_choice=None) -> 
                     image = _image_from_part(c)
                     if image:
                         images.append(image)
-                        text_parts.append("[Image attached]")
+                        mime = image[1] if isinstance(image, tuple) and len(image) > 1 else ""
+                        text_parts.append(_file_label(mime, c.get("filename") or c.get("name") or ""))
             content = " ".join(text_parts)
 
         if role == "system":
@@ -275,14 +291,19 @@ def google_contents_to_prompt(req: dict) -> tuple:
         for p in content.get("parts", []):
             if p.get("text"):
                 msg_parts.append(p["text"])
-            elif p.get("inlineData"):
-                data = p["inlineData"]
+            elif p.get("inlineData") or p.get("fileData"):
+                data = p.get("inlineData") or p.get("fileData") or {}
                 try:
-                    images.append((
-                        base64.b64decode(data["data"], validate=True),
-                        data.get("mimeType", "image/png"),
-                    ))
-                    msg_parts.append("[Image attached]")
+                    mime = data.get("mimeType", "image/png")
+                    if data.get("data"):
+                        images.append((
+                            base64.b64decode(data["data"], validate=True),
+                            mime,
+                        ))
+                        msg_parts.append(_file_label(mime))
+                    elif data.get("fileUri") or data.get("file_uri"):
+                        images.append((data.get("fileUri") or data.get("file_uri"), mime))
+                        msg_parts.append(_file_label(mime))
                 except (KeyError, ValueError, TypeError, binascii.Error):
                     pass
             elif p.get("functionCall"):

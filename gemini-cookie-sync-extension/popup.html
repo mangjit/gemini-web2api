@@ -46,14 +46,15 @@
 </head>
 <body>
   <h1>Gemini Cookie Sync</h1>
-  <p>Sign in to Gemini with Gmail, then send cookies to the playground. This extension never asks for your Google password.</p>
+  <p>Sign in with Gmail. Cookies are collected automatically and sent to the playground. This extension never asks for your Google password.</p>
   <button id="open" type="button">1. Sign in with Google</button>
-  <button id="send" type="button">2. Send cookies to playground</button>
+  <button id="send" type="button">2. Send now (also automatic)</button>
   <button id="copy" type="button">Copy cookie string</button>
   <button id="inspect" type="button">Inspect session</button>
   <button id="export" type="button">Export gemini-auth.json</button>
   <p id="status">Ready.</p>
   <p class="note">Open Gemini, sign in, then refresh the page before inspection. The generated file contains highly sensitive session data; do not share it or commit it to Git.</p>
+  <script src="cookies.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

@@ -1,37 +1,25 @@
-# Gemini Cookie Sync Setup
+# Gemini Cookie Sync
 
-Sign in to Gemini with Gmail, then send cookies to the playground. This extension never asks for your Google password.
+After you sign in to Gemini with Gmail, this extension **automatically** reads the HttpOnly cookies (`SID`, `SAPISID`, `__Secure-1PSID`) and fills the playground. It never asks for your Google password.
 
-Google OAuth tokens are **not** Gemini Web cookies. `SID`, `SAPISID`, and `__Secure-1PSID` are HttpOnly and can only be read with `chrome.cookies`.
+Install once, then Sign in with Google in the playground. Keep the playground tab open.
 
 ## Install
 
-1. Download `gemini-cookie-sync-extension.zip` from the playground (**Get Cookie Sync** or `/extension.zip`) and unzip it, **or** use the `gemini-cookie-sync-extension` folder in this repo.
+1. Download `/extension.zip` from the playground (**Get Cookie Sync**) and unzip it.
 2. Open `chrome://extensions`
 3. Enable **Developer mode**
-4. Click **Load unpacked**
-5. Select the unzipped `gemini-cookie-sync-extension` folder
+4. **Load unpacked** → select `gemini-cookie-sync-extension`
 
-## Send cookies to the playground
+## Use
 
-1. Keep the gemini-web2api playground tab open
-2. Click **1. Sign in with Google** in the extension (or the playground button)
-3. Sign in with Gmail on Google’s page
-4. Open Gemini and refresh if needed
-5. Click **2. Send cookies to playground**
+1. Keep the gemini-web2api playground tab open.
+2. Click **Sign in with Google** (playground or this popup).
+3. Sign in with Gmail on Google’s page.
+4. Return to the playground — the cookie field fills by itself.
 
-The playground Gemini cookie field fills in automatically. Cookies stay in that browser (`localStorage`) and are sent as `X-Gemini-Cookie`. They are not uploaded to git.
+That cookie is what Gemini Web needs for **images, PDFs, video, and coding/Pro routing**. Text chat can work without it; file chat cannot.
 
-You can also **Copy cookie string** or **Export gemini-auth.json**.
+Manual **Send now** / **Copy** / **Export gemini-auth.json** are backups.
 
-## Apply `gemini-auth.json` locally
-
-```bash
-python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
-```
-
-Then run the server with `--cookie-file cookie.txt`, or set `GEMINI_COOKIE` in the Render dashboard. Do not commit `cookie.txt` or `gemini-auth.json`.
-
-## Keep it secret
-
-The cookie string is a live Google session. Do not share it, print it, or commit it to Git.
+Do not share or commit the cookie string.

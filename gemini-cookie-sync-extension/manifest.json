@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Gemini Cookie Sync",
-  "version": "1.1",
-  "description": "Sign in to Gemini with Google, then send cookies to the gemini-web2api playground.",
+  "version": "1.2",
+  "description": "After Gmail sign-in, auto-sends Gemini cookies to the gemini-web2api playground.",
   "permissions": [
     "cookies",
     "downloads",
@@ -16,6 +16,21 @@
     "http://127.0.0.1/*",
     "https://*.onrender.com/*",
     "https://*.e2b.app/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://localhost/*",
+        "http://127.0.0.1/*",
+        "https://*.onrender.com/*",
+        "https://*.e2b.app/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
   ],
   "action": {
     "default_title": "Gemini Cookie Sync",

@@ -64,6 +64,83 @@ def _cached_page_tokens() -> dict:
     return _page_tokens_cache["tokens"]
 
 
+def attachment_kind(mime: str) -> int:
+    """Gemini Web attachment kind: 1 image, 2 video, 3 audio, 0 other (PDF/code)."""
+    mime = (mime or "").lower()
+    if mime.startswith("image/"):
+        return 1
+    if mime.startswith("video/"):
+        return 2
+    if mime.startswith("audio/"):
+        return 3
+    return 0
+
+
+def filename_for_mime(mime: str, filename: str = "") -> str:
+    name = (filename or "").replace("\r", "").replace("\n", "").strip()
+    if name:
+        return name
+    mime = (mime or "").lower()
+    if mime.startswith("image/"):
+        ext = mime.split("/", 1)[-1].split("+", 1)[0] or "png"
+        if ext == "jpeg":
+            ext = "jpg"
+        return f"image.{ext}"
+    if mime.startswith("video/"):
+        return "video.mp4"
+    if mime.startswith("audio/"):
+        return "audio.mp3"
+    if mime == "application/pdf":
+        return "document.pdf"
+    if mime.startswith("text/") or "javascript" in mime or mime.endswith("json"):
+        return "code.txt"
+    return "file.bin"
+
+
+def detect_file_mime(data: bytes, filename: str = "", fallback: str = "application/octet-stream") -> str:
+    """Infer MIME from magic bytes, then filename."""
+    if isinstance(data, bytes):
+        if data.startswith(b"%PDF"):
+            return "application/pdf"
+        if data.startswith(b"\x89PNG\r\n\x1a\n"):
+            return "image/png"
+        if data.startswith(b"\xff\xd8\xff"):
+            return "image/jpeg"
+        if data.startswith((b"GIF87a", b"GIF89a")):
+            return "image/gif"
+        if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+            return "image/webp"
+        if data.startswith(b"ID3") or (len(data) > 2 and data[0] == 0xFF and data[1] & 0xE0 == 0xE0):
+            if filename.lower().endswith(".mp3"):
+                return "audio/mpeg"
+        if len(data) >= 12 and data[4:8] == b"ftyp":
+            brand = data[8:12]
+            if brand in (b"avif", b"avis"):
+                return "image/avif"
+            if brand in (b"heic", b"heix"):
+                return "image/heic"
+            return "video/mp4"
+    name = (filename or "").lower()
+    ext = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf",
+        ".mp4": "video/mp4", ".webm": "video/webm", ".mov": "video/quicktime",
+        ".mp3": "audio/mpeg", ".wav": "audio/wav", ".txt": "text/plain",
+        ".md": "text/markdown", ".py": "text/x-python", ".js": "text/javascript",
+        ".ts": "text/typescript", ".json": "application/json", ".css": "text/css",
+        ".html": "text/html", ".csv": "text/csv", ".c": "text/x-c",
+        ".cpp": "text/x-c++", ".rs": "text/x-rust", ".go": "text/x-go",
+    }
+    for suffix, mime in ext.items():
+        if name.endswith(suffix):
+            return mime
+    if isinstance(data, bytes):
+        image = detect_image_mime(data, "")
+        if image:
+            return image
+    return fallback or "application/octet-stream"
+
+
 def detect_image_mime(image_bytes: bytes, fallback: str = "image/png") -> str:
     """Infer a common raster image MIME type from its file signature."""
     if not isinstance(image_bytes, bytes):
@@ -115,9 +192,8 @@ def upload_image(image_bytes: bytes, filename: str = "image.png", mime_type: str
     cookie_str, sapisid = load_cookie()
     if not cookie_str:
         raise RuntimeError(
-            "Image input needs a gemini.google.com cookie. Anonymous uploads can succeed "
-            "but Gemini rejects them in chat (error 1100). Set GEMINI_COOKIE or paste the "
-            "cookie in the playground sidebar."
+            "File input needs a gemini.google.com cookie. Sign in with Google so Cookie Sync "
+            "can auto-collect SID/SAPISID, or set GEMINI_COOKIE."
         )
 
     tokens = _cached_page_tokens()

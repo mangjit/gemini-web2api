@@ -252,6 +252,8 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b'id="cookieImport"', body)
         self.assertIn(b"gemini-cookie-sync", body)
         self.assertIn(b"Sign in with Google", body)
+        self.assertIn(b"request-cookies", body)
+        self.assertIn(b"application/pdf", body)
         self.assertIn(b'id="chatList"', body)
         self.assertIn(b'id="exportChats"', body)
         self.assertIn(b"sk-gemini", body)
@@ -269,6 +271,8 @@ class StreamingEndpointTests(unittest.TestCase):
         names = zipfile.ZipFile(io.BytesIO(body)).namelist()
         self.assertTrue(any(name.endswith("manifest.json") for name in names))
         self.assertTrue(any(name.endswith("popup.js") for name in names))
+        self.assertTrue(any(name.endswith("background.js") for name in names))
+        self.assertTrue(any(name.endswith("content.js") for name in names))
         self.assertTrue(any("gemini-cookie-sync-extension/" in name for name in names))
 
     def test_playground_does_not_require_api_key(self):
@@ -482,10 +486,10 @@ class StreamingEndpointTests(unittest.TestCase):
 
         self.assertEqual(status, 200)
         fetch_image_bytes.assert_called_once_with("https://example.com/image.jpg")
-        upload_image.assert_called_once_with(b"\xff\xd8\xffremote jpeg", "image.png", "image/jpeg")
+        upload_image.assert_called_once_with(b"\xff\xd8\xffremote jpeg", "image.jpg", "image/jpeg")
         self.assertEqual(generate.call_args.args[3], [{
             "ref": "/uploaded/remote-ref",
-            "name": "image.png",
+            "name": "image.jpg",
             "mime": "image/jpeg",
             "kind": 1,
         }])
@@ -541,7 +545,7 @@ class StreamingEndpointTests(unittest.TestCase):
         )
 
         self.assertEqual(status, 502)
-        self.assertIn("image upload failed: upload denied", json.loads(body)["error"]["message"])
+        self.assertIn("file upload failed: upload denied", json.loads(body)["error"]["message"])
 
     @mock.patch("gemini_web2api.server.generate_stream", return_value=iter(["streamed"]))
     def test_google_stream_generate_content_uses_sse(self, _generate_stream):
@@ -693,6 +697,38 @@ class GoogleLoginCookieTests(unittest.TestCase):
 
         with self.assertRaises(ValueError):
             cookie_from_auth_json({"password": "not-a-cookie"})
+
+    def test_attachment_kind_for_pdf_video_code(self):
+        from gemini_web2api.multimodal import attachment_kind, filename_for_mime
+
+        self.assertEqual(attachment_kind("image/png"), 1)
+        self.assertEqual(attachment_kind("video/mp4"), 2)
+        self.assertEqual(attachment_kind("audio/mpeg"), 3)
+        self.assertEqual(attachment_kind("application/pdf"), 0)
+        self.assertEqual(attachment_kind("text/x-python"), 0)
+        self.assertEqual(filename_for_mime("application/pdf"), "document.pdf")
+
+    def test_messages_to_prompt_extracts_pdf(self):
+        data = base64.b64encode(b"%PDF-fake").decode()
+        prompt, files = messages_to_prompt([{
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Summarize"},
+                {"type": "input_file", "filename": "doc.pdf", "mime_type": "application/pdf",
+                 "file_data": f"data:application/pdf;base64,{data}"},
+            ],
+        }])
+        self.assertIn("[PDF attached]", prompt)
+        self.assertEqual(files[0][1], "application/pdf")
+
+    def test_payload_pdf_kind_zero(self):
+        inner = _decode_payload(_build_payload("read", 1, 4, [{
+            "ref": "/contrib_service/ttl_1d/pdf",
+            "name": "doc.pdf",
+            "mime": "application/pdf",
+            "kind": 0,
+        }]))
+        self.assertEqual(inner[0][3][0][0], ["/contrib_service/ttl_1d/pdf", 0, None, "application/pdf"])
 
 
 if __name__ == "__main__":

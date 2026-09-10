@@ -13,7 +13,14 @@ from .config import CONFIG
 from .models import MODELS, resolve_model
 from .gemini import generate, generate_stream, log
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
-from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
+from .multimodal import (
+    attachment_kind,
+    detect_file_mime,
+    detect_image_mime,
+    fetch_image_bytes,
+    filename_for_mime,
+    upload_image,
+)
 from . import __version__
 
 _PLAYGROUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
@@ -38,30 +45,37 @@ def _usage(prompt: str, text: str) -> dict:
 
 
 def _upload_images(images: list) -> list:
-    """Upload images and return list of file references. Returns None if no images."""
+    """Upload images/PDFs/video/code files. Returns Gemini file refs or None."""
     if not images:
         return None
     file_refs = []
     for item in images:
-        if not (isinstance(item, tuple) and len(item) == 2):
+        name = ""
+        if isinstance(item, dict):
+            data, mime, name = item.get("data"), item.get("mime"), item.get("name") or ""
+        elif isinstance(item, tuple) and len(item) >= 2:
+            data, mime = item[0], item[1]
+            if len(item) > 2:
+                name = item[2] or ""
+        else:
             continue
-        data, mime = item
         if isinstance(data, str):
             data = fetch_image_bytes(data)
             mime = mime or "image/png"
         if not data:
-            raise RuntimeError("image fetch failed")
-        mime = detect_image_mime(data, mime or "image/png")
+            raise RuntimeError("file fetch failed")
+        mime = detect_file_mime(data, name, mime or detect_image_mime(data, "application/octet-stream"))
+        name = filename_for_mime(mime, name)
         try:
-            ref = upload_image(data, "image.png", mime or "image/png")
+            ref = upload_image(data, name, mime)
             file_refs.append({
                 "ref": ref,
-                "name": "image.png",
-                "mime": mime or "image/png",
-                "kind": 1,
+                "name": name,
+                "mime": mime,
+                "kind": attachment_kind(mime),
             })
         except Exception as e:
-            raise RuntimeError(f"image upload failed: {e}") from e
+            raise RuntimeError(f"file upload failed: {e}") from e
     return file_refs if file_refs else None
 
 
