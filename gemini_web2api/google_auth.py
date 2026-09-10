@@ -16,9 +16,6 @@ GOOGLE_AUTH = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN = "https://oauth2.googleapis.com/token"
 GOOGLE_USERINFO = "https://www.googleapis.com/oauth2/v3/userinfo"
 GOOGLE_TOKENINFO = "https://oauth2.googleapis.com/tokeninfo"
-ACCOUNT_CHOOSER = "https://accounts.google.com/AccountChooser"
-GEMINI_APP = "https://gemini.google.com/app"
-
 SESSION_COOKIE = "g2a_google"
 SESSION_TTL = 30 * 24 * 3600
 _oauth_states = {}
@@ -58,11 +55,11 @@ def _pkce() -> tuple:
     return verifier, challenge
 
 
-def authorization_url(handler) -> str:
-    """Google account picker + app consent when OAuth is configured."""
+def authorization_url(handler):
+    """Google account picker for this app. Never opens gemini.google.com."""
     cid = client_id()
     if not cid:
-        return ACCOUNT_CHOOSER + "?" + urllib.parse.urlencode({"hl": "en", "continue": GEMINI_APP})
+        return None
     verifier, challenge = _pkce()
     state = secrets.token_urlsafe(24)
     now = time.time()

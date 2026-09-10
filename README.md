@@ -117,11 +117,7 @@ This project never asks for your Gmail password.
 
 ### Playground (including Render)
 
-1. Open the playground and click **Sign in with Google**.
-2. Google asks which account should **connect to this app** (account picker / consent). You are not just reopening a page you already signed into.
-3. After you confirm, session cookies (`SID`, `SAPISID`, `__Secure-1PSID`) are collected **automatically**. No download, paste, or upload.
-
-Optional: set `GOOGLE_CLIENT_ID` (and `GOOGLE_CLIENT_SECRET` for the redirect flow) so Google shows the official “this app wants access” screen. Authorized JavaScript origin and redirect URI should be your playground URL (`/auth/google/callback`).
+Click **Sign in with Google**. This app does **not** open the Gemini website. The header shows **Signed in** or **Not signed in**.
 
 Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
 

@@ -252,7 +252,7 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b"gemini-cookie-sync", body)
         self.assertIn(b"Sign in with Google", body)
         self.assertIn(b"request-cookies", body)
-        self.assertIn(b"/auth/google", body)
+        self.assertIn(b"Signed in", body)
         self.assertIn(b"application/pdf", body)
         self.assertNotIn(b"Get Cookie Sync", body)
         self.assertNotIn(b'id="cookieImport"', body)
@@ -296,10 +296,11 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn("default_model", data)
         self.assertIn("google_client_id", data)
 
-    def test_auth_google_redirects_to_account_chooser(self):
-        status, headers, _ = self.get("/auth/google")
-        self.assertEqual(status, 302)
-        self.assertIn("accounts.google.com", headers.get("Location", ""))
+    def test_auth_google_without_client_id_does_not_open_gemini(self):
+        status, headers, body = self.get("/auth/google")
+        self.assertEqual(status, 400)
+        self.assertNotIn("gemini.google.com", (headers.get("Location") or ""))
+        self.assertIn("not configured", body.decode())
 
     def test_auth_session_anonymous(self):
         status, _, body = self.get("/auth/session")

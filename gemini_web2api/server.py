@@ -314,8 +314,12 @@ class GeminiHandler(BaseHTTPRequestHandler):
             elif path in ("/", "/playground", "/index.html"):
                 self._serve_playground()
             elif path == "/auth/google":
+                url = google_auth.authorization_url(self)
+                if not url:
+                    self.send_json({"error": {"message": "Google sign-in is not configured"}}, 400)
+                    return
                 self.send_response(302)
-                self.send_header("Location", google_auth.authorization_url(self))
+                self.send_header("Location", url)
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
             elif path == "/auth/google/callback":
