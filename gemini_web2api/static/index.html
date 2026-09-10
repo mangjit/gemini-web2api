@@ -545,17 +545,18 @@
     var COOKIE_HINT_EMPTY = "Not signed in.";
     var COOKIE_HINT_SAVED = "Signed in.";
     var CHATS_KEY = "g2a.chats";
+    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/AddSession?hl=en&continue=" + encodeURIComponent("https://myaccount.google.com/");
     var cookieWaitTimer = null;
     var cookieSyncPresent = false;
     var googleClientId = "";
     var authPopup = null;
-    var gsiClient = null;
 
     var state = {
       model: storageGet("g2a.model") || "gemini-3.6-flash",
       apiKey: storageGet("g2a.key") || "",
       geminiCookie: storageGet("g2a.cookie") || "",
       googleEmail: storageGet("g2a.googleEmail") || "",
+      signedIn: storageGet("g2a.signedIn") === "1",
       authRequired: false,
       messages: [],
       images: [],
@@ -1037,7 +1038,14 @@
     }
 
     function isSignedIn() {
-      return !!(state.geminiCookie || state.googleEmail);
+      return !!(state.signedIn || state.geminiCookie || state.googleEmail);
+    }
+
+    function popupFeatures() {
+      var w = 480, h = 680;
+      var left = Math.max(0, Math.round((window.screenX || 0) + ((window.outerWidth || 800) - w) / 2));
+      var top = Math.max(0, Math.round((window.screenY || 0) + ((window.outerHeight || 600) - h) / 2));
+      return "popup=yes,width=" + w + ",height=" + h + ",left=" + left + ",top=" + top;
     }
 
     function watchPopup() {
@@ -1048,14 +1056,18 @@
         if (closed) {
           clearInterval(window._popupWatch);
           window._popupWatch = null;
-          finishConnectAttempt();
+          finishConnectAttempt(true);
         }
       }, 400);
     }
 
-    function finishConnectAttempt() {
+    function finishConnectAttempt(fromPopupClose) {
       stopCookieWait();
       hideLoginModal();
+      if (fromPopupClose) {
+        state.signedIn = true;
+        storageSet("g2a.signedIn", "1");
+      }
       renderGoogleState();
       state.notice = isSignedIn() ? "Signed in." : "Not signed in.";
       renderThread();
@@ -1101,23 +1113,18 @@
     }
 
     function startConnect() {
-      if (isSignedIn()) return;
       $("topSignIn").textContent = "Signing in…";
       if ($("googleSignInLabel")) $("googleSignInLabel").textContent = "Signing in…";
       startCookieWait();
-      if (googleClientId && window.google && google.accounts && google.accounts.oauth2) {
-        try {
-          google.accounts.oauth2.initTokenClient({
-            client_id: googleClientId,
-            scope: "openid email profile",
-            prompt: "select_account",
-            callback: onGoogleToken
-          }).requestAccessToken();
-          watchPopup();
-          return;
-        } catch (e) {}
+      try { if (authPopup && !authPopup.closed) authPopup.close(); } catch (e) {}
+      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin", popupFeatures());
+      if (!authPopup) {
+        state.notice = "Allow popups for this site, then click Sign in with Google again.";
+        renderGoogleState();
+        renderThread();
+        return;
       }
-      setTimeout(finishConnectAttempt, 1200);
+      watchPopup();
     }
 
     function showLoginModal() {}
@@ -1339,7 +1346,9 @@
       $("clearCookie").addEventListener("click", function () {
         saveCookie("");
         state.googleEmail = "";
+        state.signedIn = false;
         storageSet("g2a.googleEmail", "");
+        storageSet("g2a.signedIn", "");
         fetch("/auth/logout", { method: "POST" }).catch(function () {});
         renderGoogleState();
         state.notice = "Signed out of this browser.";
