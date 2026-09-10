@@ -1,0 +1,1492 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>gemini-web2api</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop stop-color='%237db1ff'/%3E%3Cstop offset='1' stop-color='%233ee0c5'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%23070b14'/%3E%3Cpath d='M16 4 L19.2 12.8 L28 16 L19.2 19.2 L16 28 L12.8 19.2 L4 16 L12.8 12.8 Z' fill='url(%23g)'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --bg: #070b14;
+      --panel: rgba(16, 22, 36, .86);
+      --panel-solid: #101624;
+      --line: rgba(170, 190, 230, .12);
+      --text: #eef3ff;
+      --muted: #8d99b5;
+      --faint: #667085;
+      --accent: #6aa2ff;
+      --accent-2: #3ee0c5;
+      --accent-dim: rgba(106, 162, 255, .14);
+      --danger: #ff6b7a;
+      --ok: #3ee0c5;
+      --warn: #f0b429;
+      --shadow: 0 24px 80px rgba(0, 0, 0, .45);
+      --sans: "Segoe UI", "Helvetica Neue", ui-sans-serif, system-ui, sans-serif;
+      --mono: "Cascadia Code", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      color: var(--text);
+      font-family: var(--sans);
+      background: var(--bg);
+      overflow: hidden;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      background:
+        radial-gradient(900px 520px at 8% -8%, rgba(106, 162, 255, .22), transparent 55%),
+        radial-gradient(700px 420px at 100% 0%, rgba(62, 224, 197, .1), transparent 46%),
+        radial-gradient(600px 380px at 70% 110%, rgba(106, 162, 255, .1), transparent 50%);
+      pointer-events: none;
+      z-index: 0;
+    }
+    button, input, select, textarea { font-family: inherit; color: inherit; }
+    button, select { cursor: pointer; }
+    button { appearance: none; }
+    a { color: var(--accent); }
+
+    .app {
+      position: relative;
+      z-index: 1;
+      height: 100%;
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: 64px 1fr;
+      grid-template-areas: "top top" "side main";
+    }
+    .top {
+      grid-area: top;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 0 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(7, 11, 20, .72);
+      backdrop-filter: blur(16px);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; min-width: 0; }
+    .mark {
+      width: 34px; height: 34px; flex: 0 0 auto;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #7db1ff, #3ee0c5);
+      display: grid; place-items: center;
+      box-shadow: 0 0 24px rgba(106, 162, 255, .35);
+    }
+    .mark svg { width: 18px; height: 18px; }
+    .wordmark { display: flex; flex-direction: column; min-width: 0; }
+    .wordmark b { font-size: 14px; letter-spacing: .01em; }
+    .wordmark span { color: var(--muted); font-size: 11px; }
+    .top-actions { display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 10px; border-radius: 999px;
+      border: 1px solid var(--line); background: var(--panel);
+      font-size: 12px; color: var(--muted); white-space: nowrap;
+    }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+    .dot.ok { background: var(--ok); box-shadow: 0 0 10px var(--ok); }
+    .dot.bad { background: var(--danger); }
+    .dot.spin { background: var(--warn); }
+    .icon-btn, .ghost, .model-select {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      color: var(--text);
+      border-radius: 12px;
+    }
+    .icon-btn { width: 36px; height: 36px; display: grid; place-items: center; }
+    .ghost { padding: 8px 12px; font-size: 12px; }
+    .icon-btn:hover, .ghost:hover { border-color: rgba(106, 162, 255, .45); background: var(--accent-dim); }
+    .google-btn {
+      display: flex; align-items: center; justify-content: center; gap: 10px;
+      width: 100%;
+      border: 1px solid rgba(170, 190, 230, .28);
+      background: #fff;
+      color: #1f1f1f;
+      border-radius: 12px;
+      padding: 10px 12px;
+      font-size: 13px;
+      font-weight: 600;
+      margin: 0 0 10px;
+    }
+    .google-btn:hover { background: #f4f6fb; }
+    .google-btn svg { width: 18px; height: 18px; }
+    .login-steps { margin: 0 0 16px; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.55; }
+    .login-steps li { margin: 0 0 6px; }
+    .model-select {
+      max-width: min(280px, 42vw);
+      padding: 8px 10px;
+      font-size: 12px;
+      outline: none;
+    }
+    .menu-btn { display: none; }
+
+    .side {
+      grid-area: side;
+      border-right: 1px solid var(--line);
+      background: rgba(10, 15, 26, .72);
+      backdrop-filter: blur(18px);
+      overflow: auto;
+      padding: 16px;
+    }
+    .side h2 {
+      margin: 18px 0 8px;
+      font-size: 11px;
+      letter-spacing: .14em;
+      text-transform: uppercase;
+      color: var(--faint);
+      font-weight: 600;
+    }
+    .side h2:first-child { margin-top: 4px; }
+    .chat-toolbar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+    .chat-list { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 12px; max-height: 280px; overflow: auto; }
+    .chat-item {
+      display: flex; align-items: center; gap: 8px; width: 100%;
+      border: 1px solid var(--line); background: #0a101c;
+      border-radius: 12px; padding: 8px 10px; text-align: left;
+    }
+    .chat-item.active { border-color: rgba(106, 162, 255, .55); background: var(--accent-dim); }
+    .chat-item-body { flex: 1; min-width: 0; }
+    .chat-item-body b { display: block; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .chat-item-body span { font-size: 10px; color: var(--faint); }
+    .chat-item .del { border: 0; background: none; color: var(--faint); padding: 0 4px; font-size: 14px; }
+    .chat-item .del:hover { color: var(--danger); }
+    .field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+    .field label { font-size: 12px; color: var(--muted); }
+    .field input, .field textarea {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #0a101c;
+      border-radius: 12px;
+      padding: 10px 12px;
+      outline: none;
+    }
+    .field textarea { min-height: 88px; max-height: none; flex: none; resize: vertical; font-family: var(--mono); font-size: 11px; }
+    .field input:focus { border-color: rgba(106, 162, 255, .7); box-shadow: 0 0 0 3px rgba(106, 162, 255, .15); }
+    .key-wrap { position: relative; }
+    .key-wrap input { padding-right: 72px; }
+    .key-wrap .mini {
+      position: absolute; right: 6px; top: 6px;
+      height: 28px; padding: 0 8px; font-size: 11px;
+    }
+    .hint { font-size: 11px; color: var(--faint); line-height: 1.45; }
+    .hint.warn { color: #f3c969; }
+    .copy-row {
+      display: flex; gap: 8px; align-items: center;
+      border: 1px solid var(--line);
+      background: #0a101c;
+      border-radius: 12px;
+      padding: 8px 8px 8px 12px;
+      margin-bottom: 8px;
+    }
+    .copy-row code {
+      flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      font-family: var(--mono); font-size: 11px; color: #c9d6f5;
+    }
+    .endpoints { display: flex; flex-direction: column; gap: 6px; }
+    .endpoints div { display: flex; justify-content: space-between; gap: 8px; font-size: 11px; color: var(--muted); }
+    .endpoints code { color: #c9d6f5; font-family: var(--mono); font-size: 11px; }
+    pre.snippet {
+      margin: 0 0 10px;
+      padding: 10px;
+      border-radius: 12px;
+      border: 1px solid var(--line);
+      background: #070b14;
+      overflow: auto;
+      font-family: var(--mono);
+      font-size: 10.5px;
+      line-height: 1.45;
+      color: #c9d6f5;
+      white-space: pre-wrap;
+    }
+
+    .main { grid-area: main; display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .thread { flex: 1; overflow: auto; padding: 28px 8vw 16px; }
+    .empty {
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 10px;
+      color: var(--muted);
+    }
+    .empty h1 { margin: 8px 0 0; font-size: 28px; color: var(--text); letter-spacing: -.03em; }
+    .empty p { margin: 0; max-width: 460px; line-height: 1.55; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; max-width: 640px; }
+    .chip {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 999px;
+      padding: 8px 12px;
+      font-size: 12px;
+      color: var(--text);
+    }
+    .chip:hover { border-color: var(--accent); background: var(--accent-dim); }
+
+    .msg { display: flex; gap: 12px; margin: 0 auto 18px; max-width: 860px; }
+    .msg.user { flex-direction: row-reverse; }
+    .avatar {
+      width: 32px; height: 32px; border-radius: 10px; flex: 0 0 auto;
+      display: grid; place-items: center; font-size: 12px; font-weight: 700;
+      background: #1b2438; border: 1px solid var(--line); color: var(--accent-2);
+    }
+    .msg.user .avatar { background: #1a2a4d; color: #bcd3ff; }
+    .bubble {
+      min-width: 0; max-width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel-solid);
+      border-radius: 16px;
+      padding: 12px 14px;
+      line-height: 1.55;
+      font-size: 14.5px;
+    }
+    .msg.user .bubble {
+      background: linear-gradient(180deg, #1c2b4d, #16223d);
+      border-color: rgba(106, 162, 255, .28);
+    }
+    .bubble p { margin: 0 0 10px; }
+    .bubble p:last-child { margin-bottom: 0; }
+    .bubble h1, .bubble h2, .bubble h3 { margin: 0 0 8px; line-height: 1.25; }
+    .bubble ul { margin: 0 0 10px; padding-left: 18px; }
+    .bubble pre {
+      margin: 10px 0; padding: 12px; overflow: auto; border-radius: 12px;
+      background: #070b14; border: 1px solid var(--line);
+      font-family: var(--mono); font-size: 12.5px;
+    }
+    .bubble code {
+      font-family: var(--mono); font-size: 12.5px;
+      background: rgba(106, 162, 255, .1); padding: 1px 5px; border-radius: 6px;
+    }
+    .bubble pre code { background: none; padding: 0; }
+    .thumbs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+    .thumbs img { width: 84px; height: 84px; object-fit: cover; border-radius: 10px; border: 1px solid var(--line); }
+    .meta { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+    .meta button { border: 0; background: none; color: var(--faint); font-size: 11px; padding: 0; }
+    .meta button:hover { color: var(--accent); }
+    .error-card, .banner {
+      max-width: 860px; margin: 0 auto 14px;
+      border-radius: 14px; padding: 12px 14px; font-size: 13px;
+    }
+    .error-card {
+      border: 1px solid rgba(255, 107, 122, .35);
+      background: rgba(255, 107, 122, .08);
+      color: #ffd5da;
+    }
+    .banner {
+      border: 1px solid rgba(240, 180, 41, .35);
+      background: rgba(240, 180, 41, .1);
+      color: #ffe7a3;
+    }
+    .cursor { display: inline-block; width: 8px; height: 1.05em; background: var(--accent-2); margin-left: 2px; vertical-align: text-bottom; animation: blink 1s steps(2) infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .composer-wrap { padding: 0 8vw 22px; }
+    .composer {
+      max-width: 860px; margin: 0 auto;
+      border: 1px solid var(--line);
+      background: rgba(16, 22, 36, .9);
+      border-radius: 20px;
+      box-shadow: var(--shadow);
+      padding: 10px;
+    }
+    .attach-row { display: flex; gap: 8px; flex-wrap: wrap; padding: 4px 8px 8px; }
+    .attach { position: relative; width: 56px; height: 56px; }
+    .attach img { width: 100%; height: 100%; object-fit: cover; border-radius: 10px; }
+    .attach .file-chip {
+      width: 100%; height: 100%; border-radius: 10px; border: 1px solid var(--line);
+      background: #0a101c; display: grid; place-items: center; font-size: 9px;
+      text-align: center; padding: 4px; color: var(--muted); overflow: hidden;
+    }
+    .attach button {
+      position: absolute; top: -6px; right: -6px;
+      width: 18px; height: 18px; border-radius: 50%;
+      border: 0; background: #ff6b7a; color: #fff; font-size: 11px;
+      display: grid; place-items: center;
+    }
+    .composer-row { display: flex; align-items: flex-end; gap: 8px; }
+    textarea {
+      flex: 1; resize: none; min-height: 44px; max-height: 160px;
+      border: 0; background: transparent; outline: none;
+      padding: 10px 8px; font-size: 14.5px; line-height: 1.4;
+    }
+    .send, .stop { width: 42px; height: 42px; border-radius: 14px; border: 0; display: grid; place-items: center; flex: 0 0 auto; }
+    .send { background: linear-gradient(135deg, #6aa2ff, #3ee0c5); color: #071018; }
+    .send:disabled { opacity: .4; cursor: not-allowed; }
+    .stop { background: #ff6b7a; color: #fff; }
+    .foot { display: flex; justify-content: space-between; gap: 8px; padding: 6px 8px 2px; color: var(--faint); font-size: 11px; }
+
+    .modal {
+      display: none;
+      position: fixed; inset: 0; z-index: 20;
+      background: rgba(4, 8, 16, .72);
+      align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal.show { display: flex; }
+    .modal-card {
+      width: min(520px, 100%);
+      background: #101624;
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      padding: 22px;
+      box-shadow: var(--shadow);
+    }
+    .modal-card h2 { margin: 0 0 8px; font-size: 20px; }
+    .modal-card p { margin: 0 0 14px; color: var(--muted); font-size: 14px; line-height: 1.5; }
+    .modal-card input {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: #0a101c;
+      border-radius: 12px;
+      padding: 12px;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .modal-card .row { display: flex; gap: 8px; }
+    .modal-card .primary {
+      flex: 1; border: 0; border-radius: 12px; padding: 12px;
+      background: linear-gradient(135deg, #6aa2ff, #3ee0c5); color: #071018; font-weight: 700;
+    }
+
+    .backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,.45);
+      z-index: 5;
+    }
+    @media (max-width: 860px) {
+      .app { grid-template-columns: 1fr; grid-template-areas: "top" "main"; }
+      .side {
+        position: fixed; z-index: 6; top: 64px; left: 0; bottom: 0; width: min(360px, 88vw);
+        transform: translateX(-105%);
+        transition: transform .2s ease;
+      }
+      .side.open { transform: none; }
+      .menu-btn { display: grid; }
+      .backdrop.show { display: block; }
+      .thread, .composer-wrap { padding-left: 16px; padding-right: 16px; }
+      .empty h1 { font-size: 22px; }
+      .wordmark span { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header class="top">
+      <div class="brand">
+        <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-label="Open settings">☰</button>
+        <div class="mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" fill="#071018"/></svg>
+        </div>
+        <div class="wordmark">
+          <b>gemini-web2api</b>
+          <span>OpenAI-compatible playground</span>
+        </div>
+      </div>
+      <div class="top-actions">
+        <select class="model-select" id="modelSelect" aria-label="Model">
+          <option value="gemini-3.7-flash">gemini-3.7-flash</option>
+          <option value="gemini-3.6-flash" selected>gemini-3.6-flash</option>
+          <option value="gemini-3.5-flash">gemini-3.5-flash</option>
+          <option value="gemini-3.5-flash-thinking">gemini-3.5-flash-thinking</option>
+          <option value="gemini-3.1-pro">gemini-3.1-pro</option>
+          <option value="gemini-3.1-pro-enhanced">gemini-3.1-pro-enhanced</option>
+          <option value="gemini-auto">gemini-auto</option>
+          <option value="gemini-3.5-flash-thinking-lite">gemini-3.5-flash-thinking-lite</option>
+          <option value="gemini-flash-lite">gemini-flash-lite</option>
+        </select>
+        <div class="pill"><span class="dot" id="statusDot"></span><span id="statusText">checking</span></div>
+        <button class="ghost" id="topSignIn" type="button">Sign in with Google</button>
+        <button class="ghost" id="newChat" type="button">New chat</button>
+      </div>
+    </header>
+
+    <aside class="side" id="side">
+      <h2>Chats</h2>
+      <div class="chat-toolbar">
+        <button class="ghost" id="newChatSide" type="button">New chat</button>
+        <button class="ghost" id="exportChats" type="button">Export</button>
+        <button class="ghost" id="importChatsBtn" type="button">Import</button>
+      </div>
+      <div class="hint">Previous chats stay in this list. Stored in this browser. Export JSON to keep a copy in Google Drive or any folder.</div>
+      <div class="chat-list" id="chatList"></div>
+
+      <h2>Connection</h2>
+      <div class="copy-row"><code id="baseUrl"></code><button class="ghost mini" type="button" data-copy="base">Copy</button></div>
+      <div class="field">
+        <label for="apiKey">Server password (not a Google API key)</label>
+        <div class="key-wrap">
+          <input id="apiKey" type="password" placeholder="sk-gemini" autocomplete="off">
+          <button class="ghost mini" id="toggleKey" type="button">Show</button>
+        </div>
+        <div class="hint" id="authHint">Do not paste an AI Studio / Gemini key. Use config.json api_keys. Docker default: sk-gemini</div>
+      </div>
+      <button class="ghost" id="saveKey" type="button">Save password</button>
+
+      <h2>Google</h2>
+      <button class="google-btn" id="googleSignIn" type="button">
+        <svg viewBox="0 0 18 18" aria-hidden="true">
+          <path fill="#4285F4" d="M17.64 9.2c0-.637-.057-1.251-.164-1.84H9v3.481h4.844c-.209 1.125-.843 2.078-1.796 2.717v2.258h2.908c1.702-1.567 2.684-3.874 2.684-6.615z"/>
+          <path fill="#34A853" d="M9 18c2.43 0 4.467-.806 5.956-2.184l-2.908-2.258c-.806.54-1.837.86-3.048.86-2.344 0-4.328-1.584-5.036-3.711H.957v2.332C2.438 15.983 5.482 18 9 18z"/>
+          <path fill="#FBBC05" d="M3.964 10.707c-.18-.54-.282-1.117-.282-1.707s.102-1.167.282-1.707V4.961H.957C.347 6.175 0 7.55 0 9s.348 2.825.957 4.039l3.007-2.332z"/>
+          <path fill="#EA4335" d="M9 3.58c1.321 0 2.508.454 3.44 1.345l2.582-2.58C13.463.891 11.426 0 9 0 5.482 0 2.438 2.017.957 4.961L3.964 7.293C4.672 5.163 6.656 3.58 9 3.58z"/>
+        </svg>
+        <span id="googleSignInLabel">Sign in with Google</span>
+      </button>
+      <div class="hint" id="cookieHint">Not signed in.</div>
+      <button class="ghost" id="clearCookie" type="button" hidden>Sign out</button>
+      <textarea id="geminiCookie" hidden aria-hidden="true"></textarea>
+
+      <h2>Endpoints</h2>
+      <div class="endpoints">
+        <div><span>Chat</span><code>/v1/chat/completions</code></div>
+        <div><span>Models</span><code>/v1/models</code></div>
+        <div><span>Responses</span><code>/v1/responses</code></div>
+        <div><span>Gemini CLI</span><code>/v1beta/models</code></div>
+        <div><span>Health</span><code>/health</code></div>
+      </div>
+
+      <h2>Client snippet</h2>
+      <pre class="snippet" id="snippet"></pre>
+      <button class="ghost" type="button" data-copy="snippet">Copy Python</button>
+    </aside>
+
+    <main class="main">
+      <div class="thread" id="thread"></div>
+      <div class="composer-wrap">
+        <div class="composer">
+          <div class="attach-row" id="attachRow" hidden></div>
+          <div class="composer-row">
+            <button class="icon-btn" id="attachBtn" type="button" title="Attach image, PDF, video, or code" aria-label="Attach file">＋</button>
+            <textarea id="input" rows="1" placeholder="Message Gemini…"></textarea>
+            <button class="send" id="sendBtn" type="button" aria-label="Send">➤</button>
+            <button class="stop" id="stopBtn" type="button" hidden aria-label="Stop">■</button>
+          </div>
+          <div class="foot">
+            <span>Enter to send · Shift+Enter for a new line</span>
+            <span id="modelFoot">gemini-3.6-flash</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div class="backdrop" id="backdrop"></div>
+  <input type="file" id="file" accept="image/*,video/*,audio/*,application/pdf,text/*,.py,.js,.ts,.json,.md,.txt,.csv,.html,.css,.c,.cpp,.rs,.go" hidden multiple>
+  <input type="file" id="importFile" accept="application/json,.json" hidden>
+
+  <div class="modal" id="loginModal" role="dialog" aria-labelledby="loginTitle">
+    <div class="modal-card">
+      <h2 id="loginTitle">Connect Google</h2>
+      <p id="loginBody">Google will ask which account should connect to gemini-web2api. Confirm access in that window. Cookies are collected automatically afterwards. We never ask for your Google password.</p>
+      <div class="row">
+        <button class="ghost" id="loginCancel" type="button">Close</button>
+        <button class="primary" id="loginContinue" type="button">Continue with Google</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="authModal" role="dialog" aria-labelledby="authTitle">
+    <div class="modal-card">
+      <h2 id="authTitle">Server password required</h2>
+      <p id="authBody">This is <b>not</b> Google’s Gemini API. A key from AI Studio / aistudio.google.com will always fail. Paste the local password from <code>config.json</code> → <code>api_keys</code>. Docker default is <code>sk-gemini</code>.</p>
+      <input id="modalKey" type="password" placeholder="sk-gemini" autocomplete="off">
+      <div class="row">
+        <button class="ghost" id="authSkip" type="button">Close</button>
+        <button class="ghost" id="authExample" type="button">Use sk-gemini</button>
+        <button class="primary" id="authSave" type="button">Save and continue</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+  (function () {
+    var FALLBACK_MODELS = [
+      "gemini-3.7-flash",
+      "gemini-3.6-flash",
+      "gemini-3.5-flash",
+      "gemini-3.5-flash-thinking",
+      "gemini-3.1-pro",
+      "gemini-3.1-pro-enhanced",
+      "gemini-auto",
+      "gemini-3.5-flash-thinking-lite",
+      "gemini-flash-lite"
+    ];
+    var PROMPTS = [
+      "Explain how this proxy turns Gemini Web into an OpenAI API",
+      "Write a Python client that streams /v1/chat/completions",
+      "Give me 8 spicy ramen topping combinations",
+      "Review this idea: a CLI that talks to this server as if it were OpenAI"
+    ];
+
+    function $(id) { return document.getElementById(id); }
+    function storageGet(key) {
+      try { return window.localStorage.getItem(key) || ""; } catch (e) { return ""; }
+    }
+    function storageSet(key, value) {
+      try { window.localStorage.setItem(key, value); } catch (e) {}
+    }
+    function escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, function (c) {
+        return ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c];
+      });
+    }
+    function originBase() { return window.location.origin + "/v1"; }
+    function looksGoogleKey(value) {
+      var v = String(value || "");
+      return v.indexOf("AIza") === 0 || v.indexOf("AQ.") === 0 || v.indexOf("ya29.") === 0 || v.indexOf("GOCSPX-") === 0;
+    }
+    var GOOGLE_KEY_MSG = "That looks like a Google AI Studio / Gemini API key. This server does not use those. Type sk-gemini (the Docker config password) instead.";
+    var COOKIE_HINT_EMPTY = "Not signed in.";
+    var COOKIE_HINT_SAVED = "Signed in.";
+    var CHATS_KEY = "g2a.chats";
+    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/v3/signin/identifier?hl=en&flowName=GlifWebSignIn&flowEntry=AddSession&continue=" + encodeURIComponent("https://accounts.google.com/");
+    var cookieWaitTimer = null;
+    var cookieSyncPresent = false;
+    var googleClientId = "";
+    var authPopup = null;
+
+    var state = {
+      model: storageGet("g2a.model") || "gemini-3.6-flash",
+      apiKey: storageGet("g2a.key") || "",
+      geminiCookie: storageGet("g2a.cookie") || "",
+      googleEmail: storageGet("g2a.googleEmail") || "",
+      authRequired: false,
+      messages: [],
+      images: [],
+      streaming: false,
+      abort: null,
+      notice: ""
+    };
+
+    function renderMarkdown(src) {
+      var fences = [];
+      var text = escapeHtml(src || "");
+      text = text.replace(/```([a-zA-Z0-9_-]*)\n([\s\S]*?)```/g, function (_, lang, code) {
+        fences.push("<pre><code class=\"lang-" + lang + "\">" + code + "</code></pre>");
+        return "%%FENCE" + (fences.length - 1) + "%%";
+      });
+      text = text.replace(/`([^`]+)`/g, "<code>$1</code>");
+      text = text.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+      text = text.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+      text = text.replace(/^### (.*)$/gm, "<h3>$1</h3>");
+      text = text.replace(/^## (.*)$/gm, "<h2>$1</h2>");
+      text = text.replace(/^# (.*)$/gm, "<h1>$1</h1>");
+      text = text.replace(/^\s*[-*] (.*)$/gm, "<li>$1</li>");
+      text = text.replace(/(?:<li>.*<\/li>\n?)+/g, function (block) { return "<ul>" + block + "</ul>"; });
+      text = text.replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+      text = text.split(/\n{2,}/).map(function (p) {
+        var t = p.trim();
+        if (/^<(h\d|ul|pre)/.test(t)) return t;
+        return "<p>" + p.replace(/\n/g, "<br>") + "</p>";
+      }).join("");
+      return text.replace(/%%FENCE(\d+)%%/g, function (_, i) { return fences[Number(i)]; });
+    }
+
+    function authHeaders() {
+      var h = { "Content-Type": "application/json" };
+      if (state.apiKey) h.Authorization = "Bearer " + state.apiKey;
+      if (state.geminiCookie) h["X-Gemini-Cookie"] = state.geminiCookie;
+      return h;
+    }
+
+    function setStatus(kind, text) {
+      $("statusDot").className = "dot " + (kind === "ok" ? "ok" : kind === "bad" ? "bad" : "spin");
+      $("statusText").textContent = text;
+    }
+
+    function setModels(names) {
+      var select = $("modelSelect");
+      var current = state.model;
+      if (!names || !names.length) names = FALLBACK_MODELS.slice();
+      select.innerHTML = "";
+      names.forEach(function (name) {
+        var opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+      });
+      if (names.indexOf(current) === -1) current = names[0];
+      state.model = current;
+      select.value = current;
+      $("modelFoot").textContent = current;
+      updateSnippet();
+    }
+
+    function updateSnippet() {
+      $("baseUrl").textContent = originBase();
+      $("snippet").textContent =
+        "from openai import OpenAI\n" +
+        "client = OpenAI(\n" +
+        "    base_url=\"" + originBase() + "\",\n" +
+        "    api_key=\"" + (state.apiKey || "sk-gemini") + "\",\n" +
+        ")\n" +
+        "print(client.chat.completions.create(\n" +
+        "    model=\"" + (state.model || "gemini-3.6-flash") + "\",\n" +
+        "    messages=[{\"role\":\"user\",\"content\":\"Hello!\"}],\n" +
+        ").choices[0].message.content)";
+      $("modelFoot").textContent = state.model || "";
+    }
+
+    function messageText(m) {
+      if (typeof m.content === "string") return m.content;
+      return (m.content || []).filter(function (p) { return p.type === "text"; }).map(function (p) { return p.text; }).join("\n");
+    }
+
+    function uid() {
+      return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+    }
+
+    function formatWhen(ts) {
+      if (!ts) return "";
+      var d = new Date(ts);
+      return d.toLocaleString();
+    }
+
+    function stripPending(messages) {
+      return (messages || []).map(function (m) {
+        var copy = {
+          role: m.role,
+          content: m.content
+        };
+        if (m.error) copy.error = m.error;
+        return copy;
+      });
+    }
+
+    function chatTitleFromMessages(messages) {
+      var first = (messages || []).filter(function (m) { return m.role === "user"; })[0];
+      var text = first ? messageText(first) : "";
+      text = String(text || "").replace(/\s+/g, " ").trim();
+      if (!text) return "New chat";
+      return text.length > 48 ? text.slice(0, 48) + "…" : text;
+    }
+
+    function currentChat() {
+      for (var i = 0; i < state.chats.length; i++) {
+        if (state.chats[i].id === state.activeId) return state.chats[i];
+      }
+      return null;
+    }
+
+    function persistChats() {
+      var payload = JSON.stringify({
+        activeId: state.activeId,
+        chats: state.chats.map(function (c) {
+          return {
+            id: c.id,
+            title: c.title || "New chat",
+            createdAt: c.createdAt,
+            updatedAt: c.updatedAt,
+            model: c.model || state.model,
+            messages: stripPending(c.messages || [])
+          };
+        })
+      });
+      try {
+        window.localStorage.setItem(CHATS_KEY, payload);
+        return;
+      } catch (e) {}
+      try {
+        var slim = JSON.parse(payload);
+        slim.chats.forEach(function (c) {
+          c.messages = (c.messages || []).map(function (m) {
+            if (typeof m.content !== "object") return m;
+            return {
+              role: m.role,
+              error: m.error,
+              content: (m.content || []).map(function (p) {
+                if (p && p.type === "image_url") return { type: "text", text: "[image omitted from local backup]" };
+                return p;
+              })
+            };
+          });
+        });
+        window.localStorage.setItem(CHATS_KEY, JSON.stringify(slim));
+      } catch (e2) {}
+    }
+
+    function saveCurrentChat() {
+      var chat = currentChat();
+      if (!chat) return;
+      chat.messages = stripPending(state.messages);
+      chat.updatedAt = Date.now();
+      chat.model = state.model;
+      if (state.messages.length) chat.title = chatTitleFromMessages(state.messages);
+      persistChats();
+      renderChatList();
+    }
+
+    function hydrateChats() {
+      var parsed = null;
+      try { parsed = JSON.parse(storageGet(CHATS_KEY) || "null"); } catch (e) { parsed = null; }
+      if (parsed && Array.isArray(parsed.chats)) {
+        state.chats = parsed.chats;
+        state.activeId = parsed.activeId || "";
+      } else if (Array.isArray(parsed)) {
+        state.chats = parsed;
+      } else {
+        state.chats = [];
+      }
+      if (!state.chats.length) {
+        var blank = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+        state.chats = [blank];
+        state.activeId = blank.id;
+      }
+      var cur = currentChat() || state.chats[0];
+      state.activeId = cur.id;
+      state.messages = stripPending(cur.messages || []);
+      persistChats();
+    }
+
+    function startNewChat() {
+      saveCurrentChat();
+      var cur = currentChat();
+      if (cur && !(cur.messages || []).length && !state.messages.length) {
+        state.notice = "";
+        renderThread();
+        $("input").focus();
+        return;
+      }
+      var chat = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+      state.chats.unshift(chat);
+      state.activeId = chat.id;
+      state.messages = [];
+      state.notice = "";
+      persistChats();
+      renderChatList();
+      renderThread();
+      $("input").focus();
+    }
+
+    function openChat(id) {
+      if (id === state.activeId) return;
+      saveCurrentChat();
+      var chat = null;
+      for (var i = 0; i < state.chats.length; i++) {
+        if (state.chats[i].id === id) chat = state.chats[i];
+      }
+      if (!chat) return;
+      state.activeId = id;
+      state.messages = stripPending(chat.messages || []);
+      state.notice = "";
+      persistChats();
+      renderChatList();
+      renderThread();
+    }
+
+    function deleteChat(id) {
+      state.chats = state.chats.filter(function (c) { return c.id !== id; });
+      if (!state.chats.length) {
+        var blank = { id: uid(), title: "New chat", messages: [], createdAt: Date.now(), updatedAt: Date.now(), model: state.model };
+        state.chats = [blank];
+        state.activeId = blank.id;
+        state.messages = [];
+      } else if (state.activeId === id) {
+        state.activeId = state.chats[0].id;
+        state.messages = stripPending(state.chats[0].messages || []);
+      }
+      persistChats();
+      renderChatList();
+      renderThread();
+    }
+
+    function renderChatList() {
+      var list = $("chatList");
+      if (!list) return;
+      if (!state.chats.length) {
+        list.innerHTML = '<div class="hint">No saved chats yet.</div>';
+        return;
+      }
+      list.innerHTML = state.chats.map(function (c) {
+        var active = c.id === state.activeId ? " active" : "";
+        return '<div class="chat-item' + active + '" data-chat="' + escapeHtml(c.id) + '">' +
+          '<div class="chat-item-body"><b>' + escapeHtml(c.title || "New chat") + "</b><span>" +
+          escapeHtml(formatWhen(c.updatedAt || c.createdAt)) + "</span></div>" +
+          '<button class="del" type="button" data-del="' + escapeHtml(c.id) + '" aria-label="Delete chat">×</button></div>';
+      }).join("");
+      list.querySelectorAll("[data-chat]").forEach(function (el) {
+        el.addEventListener("click", function (e) {
+          if (e.target && e.target.getAttribute("data-del")) return;
+          openChat(el.getAttribute("data-chat"));
+        });
+      });
+      list.querySelectorAll("[data-del]").forEach(function (btn) {
+        btn.addEventListener("click", function (e) {
+          e.stopPropagation();
+          deleteChat(btn.getAttribute("data-del"));
+        });
+      });
+    }
+
+    function exportChats() {
+      saveCurrentChat();
+      var blob = new Blob([JSON.stringify({
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        chats: state.chats
+      }, null, 2)], { type: "application/json" });
+      var a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "gemini-web2api-chats.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+    }
+
+    function importChatsFile(file) {
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function () {
+        try {
+          var data = JSON.parse(reader.result);
+          var incoming = Array.isArray(data) ? data : (data.chats || []);
+          if (!incoming.length) throw new Error("No chats in file");
+          saveCurrentChat();
+          incoming.forEach(function (c) {
+            state.chats.unshift({
+              id: uid(),
+              title: c.title || chatTitleFromMessages(c.messages || []),
+              messages: stripPending(c.messages || []),
+              createdAt: c.createdAt || Date.now(),
+              updatedAt: c.updatedAt || Date.now(),
+              model: c.model || state.model
+            });
+          });
+          persistChats();
+          renderChatList();
+          state.notice = "Imported " + incoming.length + " chat(s). Previous threads are still in the list.";
+          renderThread();
+        } catch (err) {
+          state.notice = "Could not import chats: " + String(err && err.message || err);
+          renderThread();
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function renderThread() {
+      var thread = $("thread");
+      if (!state.messages.length && !state.notice) {
+        thread.innerHTML =
+          '<div class="empty">' +
+            '<div class="mark" style="width:52px;height:52px;border-radius:16px">' +
+              '<svg viewBox="0 0 24 24" width="26" height="26" fill="none"><path d="M12 2l2.4 7.2L22 12l-7.6 2.8L12 22l-2.4-7.2L2 12l7.6-2.8L12 2z" fill="#071018"/></svg>' +
+            "</div>" +
+            "<h1>Talk to Gemini through your API</h1>" +
+            "<p>This host is an OpenAI-compatible proxy. Chat here, or point Cherry Studio / Codex / the OpenAI SDK at <code>" + escapeHtml(originBase()) + "</code>.</p>" +
+            '<div class="chips">' + PROMPTS.map(function (p) { return '<button type="button" class="chip">' + escapeHtml(p) + "</button>"; }).join("") + "</div>" +
+          "</div>";
+        thread.querySelectorAll(".chip").forEach(function (btn) {
+          btn.onclick = function () {
+            $("input").value = btn.textContent;
+            $("input").focus();
+            autoGrow();
+          };
+        });
+        return;
+      }
+      var html = "";
+      if (state.notice) html += '<div class="banner">' + escapeHtml(state.notice) + "</div>";
+      state.messages.forEach(function (m, idx) {
+        var text = messageText(m);
+        var parts = typeof m.content === "string" ? [] : (m.content || []);
+        var imgs = parts.filter(function (p) { return p.type === "image_url" && p.image_url && String(p.image_url.url || "").indexOf("data:image/") === 0; });
+        var files = parts.filter(function (p) { return p.type === "input_file" || p.type === "input_document"; });
+        var thumbs = (imgs.length || files.length) ? '<div class="thumbs">' +
+          imgs.map(function (p) { return '<img src="' + p.image_url.url + '" alt="">'; }).join("") +
+          files.map(function (p) { return '<span class="file-chip">' + escapeHtml(p.filename || "file") + "</span>"; }).join("") +
+          "</div>" : "";
+        var body = m.role === "assistant" ? renderMarkdown(text || (m.pending ? "" : "")) : escapeHtml(text || "").replace(/\n/g, "<br>");
+        if (m.pending && !text) body += '<span class="cursor"></span><span> waiting for Gemini…</span>';
+        else if (m.pending) body += '<span class="cursor"></span>';
+        if (m.error) body += '<div class="error-card" style="margin:10px 0 0">' + escapeHtml(m.error) + "</div>";
+        var copy = m.role === "assistant" && text ? '<div class="meta"><button type="button" data-copy-msg="' + idx + '">Copy</button></div>' : "";
+        html += '<div class="msg ' + (m.role === "user" ? "user" : "assistant") + '">' +
+          '<div class="avatar">' + (m.role === "user" ? "U" : "G") + "</div>" +
+          '<div class="bubble">' + thumbs + body + copy + "</div></div>";
+      });
+      thread.innerHTML = html;
+      thread.querySelectorAll("[data-copy-msg]").forEach(function (btn) {
+        btn.onclick = function () {
+          var m = state.messages[Number(btn.getAttribute("data-copy-msg"))];
+          if (!m) return;
+          var value = messageText(m);
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(value);
+          btn.textContent = "Copied";
+        };
+      });
+      thread.scrollTop = thread.scrollHeight;
+    }
+
+    function autoGrow() {
+      var el = $("input");
+      el.style.height = "auto";
+      el.style.height = Math.min(el.scrollHeight, 160) + "px";
+    }
+
+    function guessMime(name) {
+      name = String(name || "").toLowerCase();
+      if (name.endsWith(".pdf")) return "application/pdf";
+      if (name.endsWith(".mp4")) return "video/mp4";
+      if (name.endsWith(".webm")) return "video/webm";
+      if (name.endsWith(".mp3")) return "audio/mpeg";
+      if (name.endsWith(".py")) return "text/x-python";
+      if (name.endsWith(".js")) return "text/javascript";
+      if (name.endsWith(".ts")) return "text/typescript";
+      if (name.endsWith(".json")) return "application/json";
+      if (name.endsWith(".md")) return "text/markdown";
+      if (name.endsWith(".txt")) return "text/plain";
+      return "";
+    }
+
+    function isAttachable(file) {
+      var mime = (file && file.type) || guessMime(file && file.name);
+      if (!mime) return /\.(png|jpe?g|gif|webp|pdf|mp4|webm|mov|mp3|wav|txt|md|py|js|ts|json|html|css|c|cpp|rs|go|csv)$/i.test(file.name || "");
+      return /^(image|video|audio|text)\//.test(mime) || mime === "application/pdf" || mime === "application/json";
+    }
+
+    function renderAttaches() {
+      var row = $("attachRow");
+      if (!state.images.length) { row.hidden = true; row.innerHTML = ""; return; }
+      row.hidden = false;
+      row.innerHTML = state.images.map(function (img, i) {
+        var inner = (img.mime || "").indexOf("image/") === 0
+          ? '<img src="' + img.url + '" alt="">'
+          : '<div class="file-chip">' + escapeHtml(img.name || "file") + "</div>";
+        return '<div class="attach">' + inner + '<button type="button" data-x="' + i + '" aria-label="Remove">×</button></div>';
+      }).join("");
+      row.querySelectorAll("button").forEach(function (b) {
+        b.onclick = function () {
+          state.images.splice(Number(b.getAttribute("data-x")), 1);
+          renderAttaches();
+        };
+      });
+    }
+
+    function addImageFile(file) {
+      if (!file || !isAttachable(file)) {
+        state.notice = "Attach an image, PDF, video, audio, or code/text file.";
+        renderThread();
+        return;
+      }
+      var mime = file.type || guessMime(file.name) || "application/octet-stream";
+      var max = mime.indexOf("video/") === 0 ? 25 * 1024 * 1024 : 12 * 1024 * 1024;
+      if (file.size > max) {
+        state.notice = "File is too large (max 12MB, 25MB for video).";
+        renderThread();
+        return;
+      }
+      var reader = new FileReader();
+      reader.onload = function () {
+        state.images.push({ url: reader.result, name: file.name, mime: mime });
+        renderAttaches();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function userContent(text) {
+      if (!state.images.length) return text;
+      return [{ type: "text", text: text }].concat(state.images.map(function (img) {
+        if ((img.mime || "").indexOf("image/") === 0) {
+          return { type: "image_url", image_url: { url: img.url } };
+        }
+        return { type: "input_file", filename: img.name, mime_type: img.mime, file_data: img.url };
+      }));
+    }
+
+    function showAuthModal(message) {
+      if (message) $("authTitle").textContent = message;
+      $("modalKey").value = state.apiKey;
+      $("authModal").classList.add("show");
+      setTimeout(function () { $("modalKey").focus(); }, 50);
+    }
+
+    function hideAuthModal() { $("authModal").classList.remove("show"); }
+
+    function requestCookiesFromExtension() {
+      try {
+        window.postMessage({ source: "gemini-web2api", type: "request-cookies" }, window.location.origin);
+      } catch (e) {}
+    }
+
+    function startCookieWait() {
+      if (cookieWaitTimer) clearInterval(cookieWaitTimer);
+      requestCookiesFromExtension();
+      cookieWaitTimer = setInterval(function () {
+        if (state.geminiCookie) {
+          stopCookieWait();
+          finishConnectAttempt();
+          return;
+        }
+        requestCookiesFromExtension();
+      }, 800);
+    }
+
+    function stopCookieWait() {
+      if (cookieWaitTimer) {
+        clearInterval(cookieWaitTimer);
+        cookieWaitTimer = null;
+      }
+    }
+
+    function isSignedIn() {
+      return !!(state.geminiCookie && state.geminiCookie.indexOf("=") !== -1);
+    }
+
+    function popupFeatures() {
+      return "width=1100,height=820,scrollbars=yes,resizable=yes";
+    }
+
+    function closeAuthPopup() {
+      try { if (authPopup && !authPopup.closed) authPopup.close(); } catch (e) {}
+    }
+
+    function watchPopup() {
+      if (window._popupWatch) clearInterval(window._popupWatch);
+      var closedTicks = 0;
+      window._popupWatch = setInterval(function () {
+        var closed = true;
+        try { closed = !authPopup || authPopup.closed; } catch (e) { closed = true; }
+        if (closed) {
+          closedTicks += 1;
+          if (closedTicks < 3) return;
+          clearInterval(window._popupWatch);
+          window._popupWatch = null;
+          finishConnectAttempt(true);
+          return;
+        }
+        closedTicks = 0;
+      }, 400);
+    }
+
+    function finishConnectAttempt(fromPopupClose) {
+      hideLoginModal();
+      if (fromPopupClose && !isSignedIn()) {
+        startCookieWait();
+        setTimeout(function () {
+          stopCookieWait();
+          renderGoogleState();
+          state.notice = isSignedIn()
+            ? "Signed in. You can send images now."
+            : "Not signed in. Finish Google email and password, then close that window.";
+          renderThread();
+        }, 2500);
+        return;
+      }
+      stopCookieWait();
+      renderGoogleState();
+      state.notice = isSignedIn() ? "Signed in. You can send images now." : "Not signed in.";
+      renderThread();
+    }
+
+    function applyGoogleProfile(profile) {
+      state.googleEmail = (profile && profile.email) || state.googleEmail || "";
+      storageSet("g2a.googleEmail", state.googleEmail);
+      renderGoogleState();
+    }
+
+    function renderGoogleState() {
+      var connected = isSignedIn();
+      var label = $("googleSignInLabel");
+      if (label) label.textContent = connected ? "Signed in" : "Sign in with Google";
+      $("topSignIn").textContent = connected ? "Signed in" : "Sign in with Google";
+      $("clearCookie").hidden = !connected;
+      $("cookieHint").className = "hint";
+      $("cookieHint").textContent = connected ? COOKIE_HINT_SAVED : COOKIE_HINT_EMPTY;
+    }
+
+    function onGoogleToken(tokenResponse) {
+      if (!tokenResponse || tokenResponse.error) {
+        finishConnectAttempt();
+        return;
+      }
+      fetch("/auth/google/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          access_token: tokenResponse.access_token || "",
+          credential: tokenResponse.credential || ""
+        })
+      }).then(function (res) { return res.json().then(function (data) { return { res: res, data: data }; }); })
+        .then(function (out) {
+          if (out.res.ok && out.data && out.data.email) applyGoogleProfile(out.data);
+        })
+        .catch(function () {})
+        .finally(function () {
+          startCookieWait();
+          setTimeout(finishConnectAttempt, 1200);
+        });
+    }
+
+    function startConnect() {
+      $("topSignIn").textContent = "Signing in…";
+      if ($("googleSignInLabel")) $("googleSignInLabel").textContent = "Signing in…";
+      startCookieWait();
+      closeAuthPopup();
+      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin", popupFeatures());
+      if (!authPopup) {
+        state.notice = "Allow popups for this site, then click Sign in with Google again.";
+        renderGoogleState();
+        renderThread();
+        return;
+      }
+      state.notice = "Enter your Google email and password in that window, then close it.";
+      renderThread();
+      watchPopup();
+    }
+
+    function showLoginModal() {}
+    function hideLoginModal() {
+      var modal = $("loginModal");
+      if (modal) modal.classList.remove("show");
+    }
+
+    function saveCookie(value) {
+      state.geminiCookie = String(value || "").trim().replace(/\n/g, " ");
+      $("geminiCookie").value = state.geminiCookie;
+      storageSet("g2a.cookie", state.geminiCookie);
+      if (state.geminiCookie) {
+        stopCookieWait();
+        state.notice = "Signed in. You can send images now.";
+      }
+      renderGoogleState();
+    }
+
+    function saveKey(value) {
+      state.apiKey = String(value || "").trim();
+      $("apiKey").value = state.apiKey;
+      storageSet("g2a.key", state.apiKey);
+      $("authHint").className = "hint";
+      $("authHint").textContent = state.apiKey
+        ? (looksGoogleKey(state.apiKey) ? GOOGLE_KEY_MSG : "Password saved in this browser. It is sent only to this server.")
+        : "Do not paste an AI Studio / Gemini key. Use config.json api_keys. Docker default: sk-gemini";
+      if (looksGoogleKey(state.apiKey)) $("authHint").className = "hint warn";
+      updateSnippet();
+    }
+
+    function openSide() {
+      $("side").classList.add("open");
+      $("backdrop").classList.add("show");
+    }
+
+    async function loadHealth() {
+      try {
+        var res = await fetch("/health", { cache: "no-store" });
+        var data = await res.json();
+        state.authRequired = !!data.auth_required;
+        googleClientId = data.google_client_id || "";
+        setModels(data.models && data.models.length ? data.models : FALLBACK_MODELS);
+        if (data.default_model && FALLBACK_MODELS.indexOf(state.model) === -1) {
+          state.model = data.default_model;
+          $("modelSelect").value = state.model;
+        }
+        if (state.authRequired && !state.apiKey) {
+          setStatus("bad", "need API key");
+          $("authHint").className = "hint warn";
+          state.notice = "This server wants the local password from config.json api_keys, not a Google Gemini API key. Docker default: sk-gemini";
+          renderThread();
+          showAuthModal("API key required");
+        } else {
+          setStatus("ok", "v" + (data.version || "1.1.0") + " live");
+          state.notice = (data.cookie_configured || state.geminiCookie || state.googleEmail)
+            ? ""
+            : "Not signed in. Click Sign in with Google.";
+          renderThread();
+        }
+      } catch (err) {
+        setStatus("bad", "offline");
+        setModels(FALLBACK_MODELS);
+        state.notice = "Could not reach /health. You can still try sending a message.";
+        renderThread();
+      }
+    }
+
+    function setStreamingUi(on) {
+      state.streaming = on;
+      $("sendBtn").hidden = !!on;
+      $("stopBtn").hidden = !on;
+      $("sendBtn").disabled = !!on;
+    }
+
+    async function send() {
+      var text = $("input").value.trim();
+      if (state.streaming) return;
+      if (!text && !state.images.length) {
+        state.notice = "Type a message first, then press Send.";
+        renderThread();
+        $("input").focus();
+        return;
+      }
+      if (looksGoogleKey(state.apiKey)) {
+        state.notice = GOOGLE_KEY_MSG;
+        renderThread();
+        showAuthModal("Not a Google API key");
+        openSide();
+        return;
+      }
+      if (state.authRequired && !state.apiKey) {
+        state.notice = "Enter the server password first. Docker default: sk-gemini";
+        renderThread();
+        showAuthModal("Server password required to send");
+        openSide();
+        return;
+      }
+      state.notice = "";
+      var content = userContent(text || "Describe this image");
+      state.messages.push({ role: "user", content: content });
+      state.images = [];
+      renderAttaches();
+      $("input").value = "";
+      autoGrow();
+      state.messages.push({ role: "assistant", content: "", pending: true });
+      saveCurrentChat();
+      renderThread();
+      await streamLast();
+    }
+
+    async function streamLast() {
+      var assistant = state.messages[state.messages.length - 1];
+      setStreamingUi(true);
+      var ctrl = new AbortController();
+      state.abort = ctrl;
+      try {
+        var payload = {
+          model: $("modelSelect").value || state.model,
+          stream: true,
+          messages: state.messages.slice(0, -1).map(function (m) {
+            return { role: m.role, content: m.content };
+          })
+        };
+        var res = await fetch("/v1/chat/completions", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify(payload),
+          signal: ctrl.signal
+        });
+        if (!res.ok) {
+          var errText = await res.text();
+          var parsed = errText;
+          try { parsed = JSON.parse(errText); parsed = (parsed.error && parsed.error.message) || errText; } catch (e) {}
+          if (res.status === 401) {
+            state.authRequired = true;
+            setStatus("bad", "need API key");
+            showAuthModal("Invalid or missing API key");
+            openSide();
+            throw new Error("Invalid or missing API key. Docker example key is sk-gemini.");
+          }
+          throw new Error(parsed || ("HTTP " + res.status));
+        }
+        if (!res.body || !res.body.getReader) {
+          var full = await res.json();
+          assistant.content = (((full.choices || [])[0] || {}).message || {}).content || "(empty response)";
+          assistant.pending = false;
+          renderThread();
+          return;
+        }
+        var reader = res.body.getReader();
+        var dec = new TextDecoder();
+        var buf = "";
+        while (true) {
+          var chunk = await reader.read();
+          if (chunk.done) break;
+          buf += dec.decode(chunk.value, { stream: true });
+          var parts = buf.split("\n\n");
+          buf = parts.pop();
+          parts.forEach(function (part) {
+            part.split("\n").forEach(function (line) {
+              if (line.indexOf("data: ") !== 0) return;
+              var data = line.slice(6);
+              if (data === "[DONE]") return;
+              try {
+                var json = JSON.parse(data);
+                if (json.error && json.error.message) {
+                  throw new Error(json.error.message);
+                }
+                var delta = json.choices && json.choices[0] && json.choices[0].delta && json.choices[0].delta.content;
+                if (delta) {
+                  assistant.content += delta;
+                  renderThread();
+                }
+              } catch (e) {
+                if (e && e.message && String(e.message).indexOf("upstream error") !== -1) throw e;
+              }
+            });
+          });
+        }
+        assistant.pending = false;
+        if (!assistant.content) {
+          assistant.error = "Gemini returned no text. Sign in with Google so this app can collect the session automatically, or set GEMINI_COOKIE on Render.";
+        }
+        renderThread();
+      } catch (err) {
+        assistant.pending = false;
+        if (err && err.name === "AbortError") {
+          if (!assistant.content) assistant.content = "(stopped)";
+        } else {
+          assistant.error = String((err && err.message) || err);
+          if (!assistant.content) assistant.content = "";
+        }
+        renderThread();
+      } finally {
+        state.abort = null;
+        setStreamingUi(false);
+        saveCurrentChat();
+      }
+    }
+
+    function bind() {
+      $("apiKey").value = state.apiKey;
+      $("geminiCookie").value = state.geminiCookie;
+      renderGoogleState();
+      if (state.geminiCookie) saveCookie(state.geminiCookie);
+      fetch("/auth/session", { cache: "no-store" }).then(function (res) { return res.json(); }).then(function (data) {
+        if (data && data.email) applyGoogleProfile(data);
+      }).catch(function () {});
+      if (FALLBACK_MODELS.indexOf(state.model) !== -1) $("modelSelect").value = state.model;
+      $("modelSelect").addEventListener("change", function (e) {
+        state.model = e.target.value;
+        storageSet("g2a.model", state.model);
+        updateSnippet();
+      });
+      $("apiKey").addEventListener("input", function (e) { saveKey(e.target.value); });
+      $("saveKey").addEventListener("click", function () {
+        saveKey($("apiKey").value);
+        state.notice = state.apiKey ? "Server password saved. Try sending a message." : "Password cleared.";
+        renderThread();
+      });
+      $("clearCookie").addEventListener("click", function () {
+        saveCookie("");
+        state.googleEmail = "";
+        storageSet("g2a.googleEmail", "");
+        fetch("/auth/logout", { method: "POST" }).catch(function () {});
+        renderGoogleState();
+        state.notice = "Signed out of this browser.";
+        renderThread();
+      });
+      $("googleSignIn").addEventListener("click", startConnect);
+      $("topSignIn").addEventListener("click", startConnect);
+      if ($("loginCancel")) $("loginCancel").addEventListener("click", hideLoginModal);
+      if ($("loginContinue")) $("loginContinue").addEventListener("click", startConnect);
+      window.addEventListener("message", function (e) {
+        if (e.origin !== window.location.origin) return;
+        var d = e.data || {};
+        if (d.source === "gemini-web2api-auth" && d.type === "signed-in") {
+          applyGoogleProfile(d);
+          hideLoginModal();
+          closeAuthPopup();
+          finishConnectAttempt(true);
+        }
+        if (d.source !== "gemini-cookie-sync") return;
+        if (d.type === "hello") cookieSyncPresent = true;
+        if (typeof d.cookie === "string" && d.cookie.indexOf("=") !== -1) {
+          saveCookie(d.cookie);
+          stopCookieWait();
+          hideLoginModal();
+          closeAuthPopup();
+          finishConnectAttempt();
+        }
+      });
+            requestCookiesFromExtension();
+      $("toggleKey").addEventListener("click", function () {
+        var el = $("apiKey");
+        el.type = el.type === "password" ? "text" : "password";
+        $("toggleKey").textContent = el.type === "password" ? "Show" : "Hide";
+      });
+      $("input").addEventListener("input", autoGrow);
+      $("input").addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          send();
+        }
+      });
+      $("input").addEventListener("paste", function (e) {
+        var items = e.clipboardData && e.clipboardData.items ? Array.prototype.slice.call(e.clipboardData.items) : [];
+        var used = false;
+        items.forEach(function (it) {
+          if (it.type && it.type.indexOf("image/") === 0) {
+            used = true;
+            addImageFile(it.getAsFile());
+          }
+        });
+        if (used) e.preventDefault();
+      });
+      $("sendBtn").addEventListener("click", function (e) { e.preventDefault(); send(); });
+      $("stopBtn").addEventListener("click", function () { if (state.abort) state.abort.abort(); });
+      $("newChat").addEventListener("click", startNewChat);
+      $("newChatSide").addEventListener("click", startNewChat);
+      $("exportChats").addEventListener("click", exportChats);
+      $("importChatsBtn").addEventListener("click", function () { $("importFile").click(); });
+      $("importFile").addEventListener("change", function (e) {
+        var file = e.target.files && e.target.files[0];
+        importChatsFile(file);
+        e.target.value = "";
+      });
+      window.addEventListener("beforeunload", saveCurrentChat);
+      $("attachBtn").addEventListener("click", function () { $("file").click(); });
+      $("file").addEventListener("change", function (e) {
+        Array.prototype.slice.call(e.target.files || []).forEach(addImageFile);
+        e.target.value = "";
+      });
+      $("menuBtn").addEventListener("click", openSide);
+      $("backdrop").addEventListener("click", function () {
+        $("side").classList.remove("open");
+        $("backdrop").classList.remove("show");
+      });
+      $("authExample").addEventListener("click", function () {
+        $("modalKey").value = "sk-gemini";
+        $("apiKey").value = "sk-gemini";
+      });
+      $("authSave").addEventListener("click", function () {
+        saveKey($("modalKey").value);
+        if (looksGoogleKey(state.apiKey)) {
+          state.notice = GOOGLE_KEY_MSG;
+          $("authHint").className = "hint warn";
+          renderThread();
+          return;
+        }
+        hideAuthModal();
+        if (state.apiKey) {
+          state.notice = "Server password saved. Try sending a message.";
+          setStatus("ok", "key saved");
+          renderThread();
+        }
+      });
+      $("authSkip").addEventListener("click", hideAuthModal);
+      $("modalKey").addEventListener("keydown", function (e) {
+        if (e.key === "Enter") $("authSave").click();
+      });
+      document.querySelectorAll("[data-copy]").forEach(function (btn) {
+        btn.addEventListener("click", function () {
+          var id = btn.getAttribute("data-copy");
+          var text = id === "base" ? originBase() : $("snippet").textContent;
+          if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text);
+          var old = btn.textContent;
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = old; }, 1200);
+        });
+      });
+    }
+
+    try {
+      hydrateChats();
+      bind();
+      setModels(FALLBACK_MODELS);
+      updateSnippet();
+      renderChatList();
+      renderThread();
+      loadHealth();
+    } catch (err) {
+      setStatus("bad", "ui error");
+      document.body.insertAdjacentHTML("afterbegin", '<div class="error-card" style="margin:16px">' + escapeHtml(String(err && err.message || err)) + "</div>");
+    }
+  })();
+  </script>
+</body>
+</html>

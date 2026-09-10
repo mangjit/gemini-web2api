@@ -20,6 +20,7 @@ Convert Google Gemini's web interface into an OpenAI-compatible API. Zero cost, 
 - **Streaming**: SSE streaming support via `httpx`
 - **Codex CLI**: Responses API (`/v1/responses`) for OpenAI Codex integration
 - **Gemini CLI**: Google native API (`/v1beta/models`) for Gemini CLI compatibility
+- **Web Playground**: Built-in chat UI at `/` for browser use after deploy
 
 ## Quick Start
 
@@ -29,6 +30,8 @@ python gemini_web2api.py
 ```
 
 Server starts at `http://localhost:8081/v1`.
+
+Open `http://localhost:8081/` in a browser for the built-in chat playground. JSON health lives at `/health`.
 
 ## Client Configuration
 
@@ -106,31 +109,43 @@ gemini-3.5-flash-thinking@think=2   # medium
 gemini-3.5-flash-thinking@think=4   # shallowest
 ```
 
-## Optional: Cookie for Pro
+## Sign in with Google (Gemini cookies)
 
-Anonymous access works for all models, but `gemini-3.1-pro` routes to Flash without authentication. To get real Pro routing, you need a **Gemini Advanced (paid subscription)** account cookie:
+Anonymous access works for some text chats, but Render datacenter IPs and **file chat** need a signed-in `gemini.google.com` session. `gemini-3.1-pro` also needs a **Gemini Advanced** cookie or it silently routes to Flash.
+
+This project never asks for your Gmail password.
+
+### Playground (including Render)
+
+Click **Sign in with Google**. A Google window opens to add credentials (email, then password) even if this browser is already signed into Google Search. Close that window when you are done. This app shows **Signed in** only when a Gemini cookie was collected.
+
+Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
+
+### Local browser login
+
+On your own computer (needs a display):
 
 ```bash
-python gemini_web2api.py --cookie-file cookie.txt
+pip install playwright
+playwright install chromium
+python -m gemini_web2api login
 ```
 
-### How to get cookies
+Sign in with Gmail in the window that opens. Writes `cookie.txt` (gitignored). Then:
 
-1. Open Chrome, go to [gemini.google.com](https://gemini.google.com) and sign in with a **Gemini Advanced** Google account
-2. Open DevTools (F12) → Application → Cookies → `https://gemini.google.com`
-3. Copy these cookie values: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`
-4. Create `cookie.txt` in this format:
-
-```
-SID=your_sid_value; HSID=your_hsid_value; SSID=your_ssid_value; APISID=your_apisid_value; SAPISID=your_sapisid_value; __Secure-1PSID=your_1psid_value
+```bash
+python -m gemini_web2api --cookie-file cookie.txt
 ```
 
-Or use the JSON format:
-```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "your_sapisid_value"}
+Import an extension export without opening a browser:
+
+```bash
+python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
 ```
 
-**Alternative (browser extension)**: Use any "Export Cookies" extension to export cookies for `gemini.google.com` in Netscape format, then convert to the single-line format above.
+### Manual fallback
+
+DevTools → Application → Cookies → `https://gemini.google.com`, then paste `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID` as one `Name=value; …` line.
 
 ### Authenticated account path and XSRF token
 
@@ -183,6 +198,75 @@ Set `temporary_chats` to `true` to use Gemini Web temporary chats instead of
 persisting conversations to the account history.
 
 When `api_keys` is `[]`, authentication is disabled. When one or more keys are set, `/v1/*` endpoints require `Authorization: Bearer <key>` or `x-api-key: <key>`.
+
+## Web Playground
+
+Visiting the server root (`/`) opens a chat UI that talks to `/v1/chat/completions` on the same host. Use it after a Render/Docker deploy instead of reading the old JSON status blob.
+
+If `api_keys` is set in `config.json`, paste a key in the sidebar. The Docker example config uses `sk-gemini`.
+
+The playground keeps previous threads in the **Chats** list (this browser’s local storage). **New chat** starts a blank thread without deleting the old one. Use **Export** to download `gemini-web2api-chats.json` and put that file in Google Drive or any folder; **Import** restores it.
+
+Point OpenAI-compatible clients at:
+
+| Field | Value |
+|-------|-------|
+| Base URL | `https://your-host/v1` |
+| API Key | a value from `api_keys`, or anything if unset |
+| Model | `gemini-3.6-flash` |
+
+## Deploy on Render
+
+1. New Web Service from this repo (Docker, or Python with `pip install -r requirements.txt`).
+2. Start command for native Python: `python -m gemini_web2api`.
+3. The process listens on `0.0.0.0` and reads Render's `PORT` env var automatically.
+4. After deploy, open the service URL — you should see the playground, not raw JSON.
+5. Health check path: `/health`.
+
+### Keep-alive cron URL
+
+Render’s free web service sleeps after idle time. Ping **GET** this URL every 5–10 minutes:
+
+```
+https://YOUR-SERVICE.onrender.com/health
+```
+
+Example (this deploy):
+
+```
+https://gemini-web2api-be17.onrender.com/health
+```
+
+Paste that into [cron-job.org](https://cron-job.org), UptimeRobot, or EasyCron:
+
+| Field | Value |
+|-------|-------|
+| URL | `https://gemini-web2api-be17.onrender.com/health` |
+| Method | GET |
+| Interval | every 10 minutes |
+| Auth | none (`/health` is public) |
+
+This repo also has `.github/workflows/keep-alive.yml` (every 10 minutes). Optional GitHub secret `HEALTH_URL` overrides the default. Enable Actions on the repo, or run the workflow manually once to test.
+6. In the Render dashboard → **Environment**, add `GEMINI_COOKIE` (the blueprint leaves it blank on purpose). Value is a `gemini.google.com` cookie string, for example:
+
+```
+SID=...; HSID=...; SSID=...; APISID=...; SAPISID=...; __Secure-1PSID=...
+```
+
+Note the two underscores in `__Secure-1PSID`. This is **not** an AI Studio API key. Save, then redeploy. Never commit the cookie to git.
+
+`render.yaml` declares `GEMINI_COOKIE` with `sync: false` so Render asks you to fill it in the dashboard.
+
+**Empty replies on Render are expected without cookies.** Google often blocks datacenter IPs for anonymous Gemini Web access. This is the same issue as Docker bridge networking.
+
+To make chat work on Render:
+
+- Click **Sign in with Google** in the playground (cookies collect automatically), or
+- Set `GEMINI_COOKIE` in the Render Environment tab (preferred for API clients), or
+- Run `python -m gemini_web2api login` on your computer and use `--cookie-file cookie.txt`, or
+- Put that string in `config.json` as `"cookie"` / `"cookie_file"`, optionally with a residential `proxy`.
+
+Do **not** use an AI Studio API key. That is a different product.
 
 ## Docker
 
@@ -268,7 +352,7 @@ resp = client.chat.completions.create(
 
 ## Limitations
 
-- **Image upload may require cookies**: Multimodal input uses Gemini Web's image upload endpoint. If anonymous upload fails, configure a Gemini cookie.
+- **Files need a cookie**: Images, PDFs, and video uploads are rejected anonymously. Sign in with Google in the playground or set `GEMINI_COOKIE`. Text/coding can work without it; files cannot.
 - **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.

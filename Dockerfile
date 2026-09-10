@@ -4,6 +4,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 COPY gemini_web2api/ ./gemini_web2api/
+COPY gemini-cookie-sync-extension/ ./gemini-cookie-sync-extension/
 COPY config.example.json ./config.json
 EXPOSE 8081
 

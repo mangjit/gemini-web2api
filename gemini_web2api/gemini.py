@@ -3,8 +3,10 @@ import json
 import time
 import uuid
 import re
+import threading
 import urllib.request
 import urllib.parse
+import urllib.error
 import ssl
 import os
 import hashlib
@@ -20,6 +22,7 @@ from .config import CONFIG
 _ssl_ctx = None
 _cookie_cache = {"str": "", "sapisid": None, "mtime": 0}
 _httpx_client = None
+_request_cookie = threading.local()
 
 
 def log(msg: str):
@@ -45,30 +48,81 @@ def _get_httpx_client():
     return _httpx_client
 
 
-def load_cookie() -> tuple:
-    """Load cookie from file with mtime-based caching."""
-    cookie_file = CONFIG.get("cookie_file")
-    if not cookie_file or not os.path.exists(cookie_file):
+def set_request_cookie(cookie_str: str):
+    """Override cookie for the current request thread (X-Gemini-Cookie)."""
+    _request_cookie.value = cookie_str or ""
+
+
+def clear_request_cookie():
+    _request_cookie.value = ""
+
+
+def normalize_cookie(content: str) -> str:
+    """Repair cookie strings copied from browsers or markdown (bold __Secure)."""
+    content = (content or "").strip()
+    if not content or content.startswith("{"):
+        return content
+    content = content.replace("\r", " ").replace("\n", " ")
+    content = re.sub(r"\*+Secure-", "__Secure-", content)
+    content = re.sub(r"\s*;\s*", "; ", content)
+    content = re.sub(r" {2,}", " ", content)
+    return content.strip(" ;")
+
+
+def _sapisid_from_cookie(cookie_str: str) -> str:
+    pairs = {}
+    for part in re.split(r";\s*", cookie_str or ""):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            pairs[key.strip()] = value.strip()
+    return pairs.get("SAPISID") or pairs.get("__Secure-1PSID", "")
+
+
+def _parse_cookie_content(content: str) -> tuple:
+    content = normalize_cookie(content)
+    if not content:
         return "", None
-    try:
-        mtime = os.path.getmtime(cookie_file)
-        if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
-            return _cookie_cache["str"], _cookie_cache["sapisid"]
-        with open(cookie_file, "r") as f:
-            content = f.read().strip()
-        if content.startswith("{"):
-            data = json.loads(content)
-            cookie_str = data.get("cookie", "")
-            sapisid = data.get("sapisid", "")
-        else:
-            cookie_str = content
-            pairs = dict(p.split("=", 1) for p in cookie_str.split("; ") if "=" in p)
-            sapisid = pairs.get("SAPISID", "")
-        _cookie_cache.update({"str": cookie_str, "sapisid": sapisid or None, "mtime": mtime})
+    if content.startswith("{"):
+        data = json.loads(content)
+        cookie_str = normalize_cookie(data.get("cookie", ""))
+        sapisid = data.get("sapisid", "") or _sapisid_from_cookie(cookie_str)
+        return cookie_str, sapisid or None
+    return content, _sapisid_from_cookie(content) or None
+
+
+def load_cookie() -> tuple:
+    """Load cookie from request header, file, inline config, or GEMINI_COOKIE env."""
+    override = getattr(_request_cookie, "value", "") or ""
+    if override.strip():
+        cookie_str, sapisid = _parse_cookie_content(override)
+        env_sapisid = os.environ.get("GEMINI_SAPISID")
+        if env_sapisid:
+            sapisid = env_sapisid
         return cookie_str, sapisid if sapisid else None
-    except Exception as e:
-        log(f"Cookie load error: {e}")
-        return _cookie_cache["str"], _cookie_cache["sapisid"]
+
+    cookie_file = CONFIG.get("cookie_file")
+    if cookie_file and os.path.exists(cookie_file):
+        try:
+            mtime = os.path.getmtime(cookie_file)
+            if mtime == _cookie_cache["mtime"] and _cookie_cache["str"]:
+                return _cookie_cache["str"], _cookie_cache["sapisid"]
+            with open(cookie_file, "r") as f:
+                cookie_str, sapisid = _parse_cookie_content(f.read())
+            env_sapisid = os.environ.get("GEMINI_SAPISID")
+            if env_sapisid:
+                sapisid = env_sapisid
+            _cookie_cache.update({"str": cookie_str, "sapisid": sapisid or None, "mtime": mtime})
+            return cookie_str, sapisid if sapisid else None
+        except Exception as e:
+            log(f"Cookie load error: {e}")
+            return _cookie_cache["str"], _cookie_cache["sapisid"]
+
+    inline = os.environ.get("GEMINI_COOKIE") or CONFIG.get("cookie") or ""
+    cookie_str, sapisid = _parse_cookie_content(inline)
+    env_sapisid = os.environ.get("GEMINI_SAPISID")
+    if env_sapisid:
+        sapisid = env_sapisid
+    return cookie_str, sapisid if sapisid else None
 
 
 def make_sapisidhash(sapisid: str) -> str:
@@ -114,10 +168,47 @@ def _apply_chat_persistence_flags(inner: list) -> None:
         inner[41] = [2]
 
 
+def _attachment_entries(file_refs: list) -> list:
+    """Build inner[0][3] in the current Gemini Web shape.
+
+    Browser capture: [[[path, kind, null, mime], filename, null×6, [0]], ...]
+    kind 1 = image, 2 = video, 3 = audio, 0 = PDF/code. The old [[null, null, path]]
+    shape is ignored upstream,
+    which produced empty replies for image chats.
+    """
+    entries = []
+    for item in file_refs or []:
+        if isinstance(item, dict):
+            ref = item.get("ref") or item.get("path") or ""
+            name = item.get("name") or item.get("filename") or "image.png"
+            mime = item.get("mime") or item.get("mime_type") or "image/png"
+            kind = item.get("kind")
+            kind = 1 if kind is None else int(kind)
+        else:
+            ref, name, mime, kind = item, "image.png", "image/png", 1
+        if not ref:
+            continue
+        entries.append([[ref, kind, None, mime], name, None, None, None, None, None, None, [0]])
+    return entries
+
+
+def _xsrf_token() -> str:
+    """XSRF `at` token. Prefer config, else SNlM0e already fetched for uploads."""
+    token = (CONFIG.get("xsrf_token") or "").strip()
+    if token:
+        return token
+    try:
+        from . import multimodal
+        tokens = (getattr(multimodal, "_page_tokens_cache", None) or {}).get("tokens") or {}
+        return (tokens.get("at") or "").strip()
+    except Exception:
+        return ""
+
+
 def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     inner = [None] * 102
-    if file_refs:
-        refs = [[None, None, ref] for ref in file_refs]
+    refs = _attachment_entries(file_refs)
+    if refs:
         inner[0] = [prompt, 0, None, refs, None, None, 0]
     else:
         inner[0] = [prompt, 0, None, None, None, None, 0]
@@ -142,8 +233,9 @@ def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list 
             inner[k] = v
     outer = [None, json.dumps(inner)]
     params = {"f.req": json.dumps(outer)}
-    if CONFIG.get("xsrf_token"):
-        params["at"] = CONFIG["xsrf_token"]
+    at = _xsrf_token()
+    if at:
+        params["at"] = at
     return urllib.parse.urlencode(params)
 
 
@@ -189,6 +281,78 @@ def _extract_texts_from_line(line: str) -> list:
         return []
 
 
+
+def fetch_latest_bl():
+    """Fetch the latest gemini_bl from gemini.google.com."""
+    try:
+        req = urllib.request.Request(
+            "https://gemini.google.com/app",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+        )
+        ctx = _get_ssl_ctx()
+        proxy = CONFIG.get("proxy")
+        if proxy:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+                urllib.request.HTTPSHandler(context=ctx),
+            )
+            resp = opener.open(req, timeout=15)
+        else:
+            resp = urllib.request.urlopen(req, context=ctx, timeout=15)
+        html = resp.read().decode("utf-8", errors="replace")
+        m = re.search(r"(boq_assistant-bard-web-server_\d+\.\d+_p\d+)", html)
+        if m:
+            return m.group(1)
+    except Exception as e:
+        log(f"BL auto-update fetch failed: {e}")
+    return None
+
+
+def update_bl_if_needed() -> bool:
+    new_bl = fetch_latest_bl()
+    if new_bl and new_bl != CONFIG["gemini_bl"]:
+        log(f"BL auto-updated: {CONFIG['gemini_bl']} -> {new_bl}")
+        CONFIG["gemini_bl"] = new_bl
+        return True
+    return False
+
+
+def empty_upstream_message(raw: str = "", has_files: bool = False) -> str:
+    blob = (raw or "").lower()
+    if has_files or "1100" in (raw or ""):
+        cookie_str, _ = load_cookie()
+        if cookie_str:
+            return (
+                "Gemini returned no text for this image. A cookie was sent, but Google "
+                "still rejected file chat. Refresh GEMINI_COOKIE from a signed-in "
+                "gemini.google.com session and try a smaller PNG or JPEG."
+            )
+        return (
+            "Image chat needs a signed-in Gemini cookie. Click Sign in with Google, "
+            "finish email and password, then try the image again."
+        )
+    if "recaptcha" in blob or "captcha" in blob:
+        return (
+            "Gemini served a CAPTCHA. Datacenter IPs (Render/Fly/Docker) are often blocked. "
+            "Run this on your home computer, or set GEMINI_COOKIE / cookie_file and a residential proxy."
+        )
+    if "accounts.google.com" in blob or "sign in" in blob or "signin" in blob:
+        return (
+            "Gemini redirected to login. Anonymous access from this IP is blocked. "
+            "Set GEMINI_COOKIE or cookie_file to a gemini.google.com cookie string."
+        )
+    if blob.lstrip().startswith("<!doctype") or blob.lstrip().startswith("<html"):
+        return (
+            "Gemini returned an HTML page instead of a chat stream (blocked or login wall). "
+            "Render IPs are commonly blocked. Run locally or add cookies + proxy."
+        )
+    return (
+        "Gemini returned no text. Google often blocks Render/Docker datacenter IPs for "
+        "anonymous web access. Run gemini-web2api on your own computer, or set "
+        "GEMINI_COOKIE / cookie_file (and optionally a proxy) in config.json."
+    )
+
+
 def extract_response_text(raw: str) -> str:
     """Parse full response to get final text."""
     bard_err = re.search(r'BardErrorInfo\s*\[(\d+)\]', raw)
@@ -223,7 +387,19 @@ def generate(prompt: str, model_id: int, think_mode: int, file_refs: list = None
             else:
                 resp = urllib.request.urlopen(req, context=ctx, timeout=CONFIG["request_timeout_sec"])
             raw = resp.read().decode("utf-8", errors="replace")
-            return extract_response_text(raw)
+            text = extract_response_text(raw)
+            if not text:
+                raise RuntimeError(empty_upstream_message(raw, has_files=bool(file_refs)))
+            return text
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code == 405 and update_bl_if_needed():
+                url = _get_url()
+                log("Retrying with updated BL...")
+                continue
+            if attempt < CONFIG["retry_attempts"] - 1:
+                log(f"Retry {attempt+1}/{CONFIG['retry_attempts']}: {e}")
+                time.sleep(CONFIG["retry_delay_sec"])
         except Exception as e:
             last_err = e
             if attempt < CONFIG["retry_attempts"] - 1:
@@ -248,10 +424,14 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
     last_err = None
     emitted_raw_text = ""
     for attempt in range(CONFIG["retry_attempts"]):
+        buf = ""
         try:
             with client.stream("POST", url, content=body, headers=headers) as resp:
+                if resp.status_code == 405 and update_bl_if_needed():
+                    url = _get_url()
+                    log("Retrying stream with updated BL...")
+                    continue
                 resp.raise_for_status()
-                buf = ""
                 for chunk in resp.iter_text():
                     buf += chunk
                     if "BardErrorInfo" in buf:
@@ -271,6 +451,8 @@ def generate_stream(prompt: str, model_id: int, think_mode: int, file_refs: list
                             emitted_raw_text = t
                             if delta:
                                 yield delta
+            if not emitted_raw_text:
+                raise RuntimeError(empty_upstream_message(buf, has_files=bool(file_refs)))
             return
         except Exception as e:
             last_err = e

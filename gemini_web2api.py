@@ -652,24 +652,47 @@ class GeminiHandler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _presented_key(self):
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        for h in ("x-api-key", "x-goog-api-key"):
+            value = self.headers.get(h, "")
+            if value:
+                return value
+        if "?" in self.path:
+            for pair in self.path.split("?", 1)[1].split("&"):
+                if pair.startswith("key="):
+                    return pair[4:]
+        return ""
+
     def _authorized(self):
         keys = CONFIG.get("api_keys") or []
         if not keys:
             return True
-        # Authorization: Bearer <key>
-        auth = self.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[7:] in keys:
-            return True
-        # header keys (OpenAI x-api-key / Google x-goog-api-key)
-        for h in ("x-api-key", "x-goog-api-key"):
-            if self.headers.get(h, "") in keys:
-                return True
-        # query param ?key= (Gemini CLI native style)
-        if "?" in self.path:
-            for pair in self.path.split("?", 1)[1].split("&"):
-                if pair.startswith("key=") and pair[4:] in keys:
-                    return True
-        return False
+        return self._presented_key() in keys
+
+    def _send_unauthorized(self):
+        presented = self._presented_key()
+        looks_google = presented.startswith(("AIza", "AQ.", "ya29.", "GOCSPX-"))
+        if looks_google:
+            message = (
+                "This is not Google's Gemini API. Do not paste an AI Studio / Gemini API key. "
+                "Use a password from this server's config.json api_keys list. "
+                "Docker example: sk-gemini"
+            )
+        elif not presented:
+            message = (
+                "Missing API key. Use a password from config.json api_keys "
+                "(Docker example: sk-gemini). This is NOT a Google Gemini API key."
+            )
+        else:
+            message = (
+                "API key does not match config.json api_keys. "
+                "gemini-web2api uses a local password, not a Google Gemini API key. "
+                "Docker example: sk-gemini"
+            )
+        self.send_json({"error": {"message": message, "type": "invalid_api_key"}}, 401)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -680,20 +703,45 @@ class GeminiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.path.startswith("/v1") and not self._authorized():
-                self.send_json({"error": {"message": "invalid api key"}}, 401)
+            path = self.path.split("?", 1)[0]
+            if path.startswith("/v1") and not self._authorized():
+                self._send_unauthorized()
                 return
-            if self.path == "/v1/models":
+            if path == "/v1/models":
                 self.send_json({"object": "list", "data": [
                     {"id": n, "object": "model", "created": 1700000000,
                      "owned_by": "google", "description": c["desc"]}
                     for n, c in MODELS.items()
                 ]})
-            elif self.path.startswith("/v1beta/models"):
+            elif path.startswith("/v1beta/models"):
                 self._handle_google_models_list()
-            elif self.path == "/":
-                self.send_json({"status": "ok", "version": __version__,
-                                "models": list(MODELS.keys())})
+            elif path in ("/health", "/status"):
+                keys = CONFIG.get("api_keys") or []
+                self.send_json({
+                    "status": "ok",
+                    "version": __version__,
+                    "models": list(MODELS.keys()),
+                    "default_model": CONFIG.get("default_model", "gemini-3.6-flash"),
+                    "auth_required": bool(keys),
+                })
+            elif path in ("/", "/playground", "/index.html"):
+                playground = os.path.join(
+                    os.path.dirname(os.path.abspath(__file__)),
+                    "gemini_web2api", "static", "index.html",
+                )
+                try:
+                    with open(playground, "rb") as f:
+                        body = f.read()
+                    self.send_response(200)
+                    self.send_header("Content-Type", "text/html; charset=utf-8")
+                    self.send_header("Cache-Control", "no-cache")
+                    self.send_header("Access-Control-Allow-Origin", "*")
+                    self.send_header("Content-Length", str(len(body)))
+                    self.end_headers()
+                    self.wfile.write(body)
+                except OSError:
+                    self.send_json({"status": "ok", "version": __version__,
+                                    "models": list(MODELS.keys())})
             else:
                 self.send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
@@ -704,7 +752,7 @@ class GeminiHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         try:
             if self.path.startswith("/v1") and not self._authorized():
-                self.send_json({"error": {"message": "invalid api key"}}, 401)
+                self._send_unauthorized()
                 return
             body = self._read_request_body()
             if self.path == "/v1/chat/completions":
@@ -1070,6 +1118,13 @@ def main():
                 break
     load_config(config_path)
 
+    env_port = os.environ.get("PORT")
+    if env_port:
+        try:
+            CONFIG["port"] = int(env_port)
+        except ValueError:
+            pass
+
     if args.port:
         CONFIG["port"] = args.port
     if args.cookie_file:
@@ -1088,8 +1143,9 @@ def main():
     port = CONFIG["port"]
     server = ThreadedServer((CONFIG["host"], port), GeminiHandler)
     print(f"gemini-web2api v{__version__}")
-    print(f"  Listening: http://0.0.0.0:{port}")
-    print(f"  Base URL:  http://localhost:{port}/v1")
+    print(f"  Listening:  http://0.0.0.0:{port}")
+    print(f"  Playground: http://localhost:{port}/")
+    print(f"  Base URL:   http://localhost:{port}/v1")
     print(f"  Models:    {', '.join(MODELS.keys())}")
     print(f"  Cookie:    {'yes (' + CONFIG['cookie_file'] + ')' if CONFIG.get('cookie_file') else 'none (anonymous)'}")
     print(f"  Proxy:     {CONFIG.get('proxy') or 'none (uses system env HTTP_PROXY/HTTPS_PROXY)'}")

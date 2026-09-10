@@ -20,6 +20,7 @@
 - **流式输出**: 基于 `httpx` 的 SSE Streaming 支持
 - **Codex CLI**: Responses API (`/v1/responses`) 兼容 OpenAI Codex
 - **Gemini CLI**: Google 原生 API (`/v1beta/models`) 兼容 Gemini CLI
+- **网页 Playground**: 访问 `/` 即可在浏览器里对话
 
 ## 快速开始
 
@@ -96,31 +97,39 @@ gemini-3.5-flash-thinking@think=2   # 中等
 gemini-3.5-flash-thinking@think=4   # 最浅
 ```
 
-## 可选: Cookie 配置 (Pro 模型)
+## 用 Google 账号登录 (Gemini Cookie)
 
-匿名访问对所有模型有效, 但 `gemini-3.1-pro` 在无认证时会路由到 Flash. 要获得真正的 Pro 路由, 需要 **Gemini Advanced (付费订阅)** 账号的 cookie:
+匿名访问部分文字对话可用, 但 Render 机房 IP 和 **图片对话** 需要已登录的 `gemini.google.com` 会话。`gemini-3.1-pro` 也需要 **Gemini Advanced** cookie, 否则会静默落到 Flash。
+
+Google OAuth / AI Studio API Key **不能** 换成这些 cookie (`SID`, `SAPISID`, `__Secure-1PSID`)。它们是 HttpOnly。本项目不会向你要 Gmail 密码。
+
+### Playground（含 Render）
+
+1. 打开 Playground, 点击 **Sign in with Google**。
+2. 在弹出窗口输入 Google 邮箱和密码（即使浏览器已登录 Google 搜索也会再要一次）。
+3. 完成后关闭该窗口。只有收集到 Gemini cookie 时才会显示 **Signed in**。
+
+Cookie 只留在该浏览器, 请求时作为 `X-Gemini-Cookie` 发送。API 客户端请在 Render 控制台设置 `GEMINI_COOKIE`。不要把 cookie 提交到 git。
+
+### 本机浏览器登录
 
 ```bash
-python gemini_web2api.py --cookie-file cookie.txt
+pip install playwright
+playwright install chromium
+python -m gemini_web2api login
 ```
 
-### 如何获取 Cookie
+在弹出窗口用 Gmail 登录, 会写入 `cookie.txt`（已 gitignore）。然后:
 
-1. 打开 Chrome, 访问 [gemini.google.com](https://gemini.google.com) 并登录 **Gemini Advanced** 付费账号
-2. 打开开发者工具 (F12) → Application → Cookies → `https://gemini.google.com`
-3. 复制以下 cookie 值: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`
-4. 创建 `cookie.txt`, 格式如下:
-
-```
-SID=你的SID值; HSID=你的HSID值; SSID=你的SSID值; APISID=你的APISID值; SAPISID=你的SAPISID值; __Secure-1PSID=你的1PSID值
+```bash
+python -m gemini_web2api --cookie-file cookie.txt
 ```
 
-或使用 JSON 格式:
-```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "你的SAPISID值"}
-```
+导入扩展导出的文件:
 
-**替代方案 (浏览器扩展)**: 使用任意 "Export Cookies" 扩展导出 `gemini.google.com` 的 cookie, 然后转换为上述单行格式.
+```bash
+python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
+```
 
 ### 登录账号路径与 XSRF Token
 
@@ -173,6 +182,19 @@ Pro 路由需要 **Gemini Advanced** (付费订阅). 免费 Google 账号的 coo
 不会将对话保存在账号历史记录中。
 
 `api_keys` 为空数组 `[]` 时不校验密钥；填入一个或多个密钥后, `/v1/*` 接口需要 `Authorization: Bearer <key>` 或 `x-api-key: <key>`.
+
+## 网页 Playground
+
+访问服务根路径 `/` 会打开聊天界面，请求发往本机的 `/v1/chat/completions`。部署到 Render 后打开网站就应该看到这个界面，而不是一段 JSON。
+
+如果 `config.json` 里配置了 `api_keys`，在侧栏填入密钥。Docker 示例配置使用 `sk-gemini`。
+
+## 部署到 Render
+
+1. 用本仓库创建 Web Service（Docker，或 Python + `pip install -r requirements.txt`）。
+2. 原生 Python 启动命令: `python -m gemini_web2api`。
+3. 进程监听 `0.0.0.0`，并自动读取 Render 的 `PORT` 环境变量。
+4. 健康检查路径: `/health`。
 
 ## Docker 部署
 

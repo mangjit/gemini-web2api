@@ -1,8 +1,11 @@
 """HTTP server: OpenAI-compatible API endpoints."""
+import io
 import json
+import os
 import time
 import uuid
 import re
+import zipfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 
@@ -10,8 +13,30 @@ from .config import CONFIG
 from .models import MODELS, resolve_model
 from .gemini import generate, generate_stream, log
 from .tools import messages_to_prompt, parse_tool_calls, google_contents_to_prompt, parse_google_function_calls
-from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
+from .multimodal import (
+    attachment_kind,
+    detect_file_mime,
+    detect_image_mime,
+    fetch_image_bytes,
+    filename_for_mime,
+    upload_image,
+)
 from . import __version__
+from . import google_auth
+
+_PLAYGROUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def extension_dir():
+    candidates = [
+        os.path.normpath(os.path.join(_HERE, "..", "gemini-cookie-sync-extension")),
+        os.path.join(_HERE, "static", "cookie-sync"),
+    ]
+    for path in candidates:
+        if os.path.isfile(os.path.join(path, "manifest.json")):
+            return path
+    return None
 
 
 def _usage(prompt: str, text: str) -> dict:
@@ -21,25 +46,37 @@ def _usage(prompt: str, text: str) -> dict:
 
 
 def _upload_images(images: list) -> list:
-    """Upload images and return list of file references. Returns None if no images."""
+    """Upload images/PDFs/video/code files. Returns Gemini file refs or None."""
     if not images:
         return None
     file_refs = []
     for item in images:
-        if not (isinstance(item, tuple) and len(item) == 2):
+        name = ""
+        if isinstance(item, dict):
+            data, mime, name = item.get("data"), item.get("mime"), item.get("name") or ""
+        elif isinstance(item, tuple) and len(item) >= 2:
+            data, mime = item[0], item[1]
+            if len(item) > 2:
+                name = item[2] or ""
+        else:
             continue
-        data, mime = item
         if isinstance(data, str):
             data = fetch_image_bytes(data)
             mime = mime or "image/png"
         if not data:
-            raise RuntimeError("image fetch failed")
-        mime = detect_image_mime(data, mime or "image/png")
+            raise RuntimeError("file fetch failed")
+        mime = detect_file_mime(data, name, mime or detect_image_mime(data, "application/octet-stream"))
+        name = filename_for_mime(mime, name)
         try:
-            ref = upload_image(data, "image.png", mime or "image/png")
-            file_refs.append(ref)
+            ref = upload_image(data, name, mime)
+            file_refs.append({
+                "ref": ref,
+                "name": name,
+                "mime": mime,
+                "kind": attachment_kind(mime),
+            })
         except Exception as e:
-            raise RuntimeError(f"image upload failed: {e}") from e
+            raise RuntimeError(f"file upload failed: {e}") from e
     return file_refs if file_refs else None
 
 
@@ -48,14 +85,123 @@ class GeminiHandler(BaseHTTPRequestHandler):
         client_ip = self.client_address[0] if self.client_address else "-"
         log(f"{client_ip} {fmt % args}")
 
-    def send_json(self, data, status=200):
+    def send_json(self, data, status=200, extra_headers=None):
         body = json.dumps(data, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
         self.end_headers()
         self.wfile.write(body)
+
+    def _send_html(self, html: str, status=200, extra_headers=None):
+        body = html.encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(body)))
+        if extra_headers:
+            for key, value in extra_headers.items():
+                self.send_header(key, value)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _secure_cookies(self) -> bool:
+        proto = (self.headers.get("X-Forwarded-Proto") or "").split(",")[0].strip()
+        host = self.headers.get("Host") or ""
+        return proto == "https" or "onrender.com" in host or "e2b.app" in host
+
+    def _route_path(self):
+        return self.path.split("?", 1)[0]
+
+    def _health_payload(self):
+        from .gemini import load_cookie
+        keys = CONFIG.get("api_keys") or []
+        cookie_str, _ = load_cookie()
+        return {
+            "status": "ok",
+            "version": __version__,
+            "models": list(MODELS.keys()),
+            "default_model": CONFIG.get("default_model", "gemini-3.6-flash"),
+            "auth_required": bool(keys),
+            "cookie_configured": bool(cookie_str),
+            "google_client_id": google_auth.client_id(),
+        }
+
+    def _serve_playground(self):
+        try:
+            with open(_PLAYGROUND_FILE, "rb") as f:
+                body = f.read()
+        except OSError:
+            self.send_json(self._health_payload())
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_extension_zip(self):
+        ext = extension_dir()
+        if not ext:
+            self.send_json({"error": "extension not packaged"}, 404)
+            return
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name in sorted(os.listdir(ext)):
+                path = os.path.join(ext, name)
+                if os.path.isfile(path) and not name.startswith("."):
+                    archive.write(path, arcname=f"gemini-cookie-sync-extension/{name}")
+        body = buf.getvalue()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", "attachment; filename=gemini-cookie-sync-extension.zip")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _google_session_headers(self, profile: dict) -> dict:
+        token = google_auth.encode_session(profile)
+        return {"Set-Cookie": google_auth.session_set_cookie(token, self._secure_cookies())}
+
+    def _handle_google_callback(self):
+        from urllib.parse import parse_qs
+        query = parse_qs(self.path.split("?", 1)[1] if "?" in self.path else "")
+        flat = {key: (values[0] if values else "") for key, values in query.items()}
+        try:
+            profile = google_auth.profile_from_callback(self, flat)
+        except Exception as exc:
+            self._send_html(
+                "<!DOCTYPE html><html><body><p>"
+                + str(exc).replace("<", "")
+                + "</p><p><a href='/'>Back</a></p></body></html>",
+                400,
+            )
+            return
+        self._send_html(google_auth.popup_done_html(profile), extra_headers=self._google_session_headers(profile))
+
+    def _handle_google_token(self, body: bytes):
+        req = self._parse_body(body) or {}
+        try:
+            profile = google_auth.profile_from_browser_payload(req)
+        except Exception as exc:
+            self.send_json({"error": {"message": str(exc)}}, 401)
+            return
+        self.send_json(
+            {
+                "connected": True,
+                "email": profile.get("email") or "",
+                "name": profile.get("name") or "",
+            },
+            extra_headers=self._google_session_headers(profile),
+        )
 
     def _start_sse(self):
         self.send_response(200)
@@ -96,24 +242,47 @@ class GeminiHandler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", 0))
         return self.rfile.read(length) if length else b""
 
+    def _presented_key(self):
+        auth = self.headers.get("Authorization", "")
+        if auth.startswith("Bearer "):
+            return auth[7:]
+        for h in ("x-api-key", "x-goog-api-key"):
+            value = self.headers.get(h, "")
+            if value:
+                return value
+        if "?" in self.path:
+            for pair in self.path.split("?", 1)[1].split("&"):
+                if pair.startswith("key="):
+                    return pair[4:]
+        return ""
+
     def _authorized(self):
         keys = CONFIG.get("api_keys") or []
         if not keys:
             return True
-        # Authorization: Bearer <key>
-        auth = self.headers.get("Authorization", "")
-        if auth.startswith("Bearer ") and auth[7:] in keys:
-            return True
-        # header keys (OpenAI x-api-key / Google x-goog-api-key)
-        for h in ("x-api-key", "x-goog-api-key"):
-            if self.headers.get(h, "") in keys:
-                return True
-        # query param ?key= (Gemini CLI native style)
-        if "?" in self.path:
-            for pair in self.path.split("?", 1)[1].split("&"):
-                if pair.startswith("key=") and pair[4:] in keys:
-                    return True
-        return False
+        return self._presented_key() in keys
+
+    def _send_unauthorized(self):
+        presented = self._presented_key()
+        looks_google = presented.startswith(("AIza", "AQ.", "ya29.", "GOCSPX-"))
+        if looks_google:
+            message = (
+                "This is not Google's Gemini API. Do not paste an AI Studio / Gemini API key. "
+                "Use a password from this server's config.json api_keys list. "
+                "Docker example: sk-gemini"
+            )
+        elif not presented:
+            message = (
+                "Missing API key. Use a password from config.json api_keys "
+                "(Docker example: sk-gemini). This is NOT a Google Gemini API key."
+            )
+        else:
+            message = (
+                "API key does not match config.json api_keys. "
+                "gemini-web2api uses a local password, not a Google Gemini API key. "
+                "Docker example: sk-gemini"
+            )
+        self.send_json({"error": {"message": message, "type": "invalid_api_key"}}, 401)
 
     def do_OPTIONS(self):
         self.send_response(204)
@@ -124,41 +293,90 @@ class GeminiHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         try:
-            if self.path.startswith("/v1") and not self._authorized():
-                self.send_json({"error": {"message": "invalid api key"}}, 401)
+            path = self._route_path()
+            if path.startswith("/v1") and not self._authorized():
+                self._send_unauthorized()
                 return
-            if self.path == "/v1/models":
+            if path == "/v1/models":
                 self.send_json({"object": "list", "data": [
                     {"id": n, "object": "model", "created": 1700000000,
                      "owned_by": "google", "description": c["desc"]}
                     for n, c in MODELS.items()
                 ]})
-            elif self.path.startswith("/v1beta/models"):
+            elif path.startswith("/v1beta/models"):
                 self.send_json({"models": [
                     {"name": f"models/{n}", "displayName": n, "description": c["desc"],
                      "supportedGenerationMethods": ["generateContent", "streamGenerateContent"]}
                     for n, c in MODELS.items()
                 ]})
-            elif self.path == "/":
-                self.send_json({"status": "ok", "version": __version__, "models": list(MODELS.keys())})
+            elif path in ("/health", "/status"):
+                self.send_json(self._health_payload())
+            elif path in ("/", "/playground", "/index.html"):
+                self._serve_playground()
+            elif path == "/auth/google":
+                url = google_auth.authorization_url(self)
+                if not url:
+                    self.send_json({"error": {"message": "Google sign-in is not configured"}}, 400)
+                    return
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            elif path == "/auth/connect":
+                url = google_auth.google_login_redirect(self)
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            elif path == "/auth/connected":
+                self._send_html(google_auth.popup_done_html({}))
+            elif path == "/auth/google/callback":
+                self._handle_google_callback()
+            elif path == "/auth/session":
+                profile = google_auth.read_session_cookie(self.headers.get("Cookie", ""))
+                self.send_json({
+                    "connected": bool(profile),
+                    "email": (profile or {}).get("email") or "",
+                    "name": (profile or {}).get("name") or "",
+                })
+            elif path == "/auth/logout":
+                self.send_json(
+                    {"ok": True},
+                    extra_headers={"Set-Cookie": google_auth.session_clear_cookie(self._secure_cookies())},
+                )
+            elif path in ("/extension.zip", "/gemini-cookie-sync-extension.zip"):
+                self._serve_extension_zip()
             else:
                 self.send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):
             pass
 
     def do_POST(self):
+        from .gemini import clear_request_cookie, set_request_cookie
+        set_request_cookie(self.headers.get("X-Gemini-Cookie") or "")
         try:
-            if self.path.startswith("/v1") and not self._authorized():
-                self.send_json({"error": {"message": "invalid api key"}}, 401)
+            path = self._route_path()
+            if path in ("/auth/google/token", "/auth/logout"):
+                body = self._read_request_body()
+                if path == "/auth/logout":
+                    self.send_json(
+                        {"ok": True},
+                        extra_headers={"Set-Cookie": google_auth.session_clear_cookie(self._secure_cookies())},
+                    )
+                else:
+                    self._handle_google_token(body)
+                return
+            if path.startswith("/v1") and not self._authorized():
+                self._send_unauthorized()
                 return
             body = self._read_request_body()
-            if self.path == "/v1/chat/completions":
+            if path == "/v1/chat/completions":
                 self._handle_chat(body)
-            elif self.path == "/v1/responses":
+            elif path == "/v1/responses":
                 self._handle_responses(body)
-            elif ":streamGenerateContent" in self.path:
+            elif ":streamGenerateContent" in path:
                 self._handle_google_generate(body, stream=True)
-            elif ":generateContent" in self.path:
+            elif ":generateContent" in path:
                 self._handle_google_generate(body, stream=False)
             else:
                 self.send_json({"error": "not found"}, 404)
@@ -170,6 +388,8 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json({"error": {"message": str(e)}}, 500)
             except:
                 pass
+        finally:
+            clear_request_cookie()
 
     # ─── /v1/chat/completions ─────────────────────────────────────────────────
 
@@ -229,6 +449,19 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 pass
             except Exception as e:
                 log(f"Stream error: {e}")
+                try:
+                    err_text = f"upstream error: {e}"
+                    chunk = {
+                        "id": cid, "object": "chat.completion.chunk", "created": int(time.time()),
+                        "model": model_name,
+                        "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                        "error": {"message": err_text},
+                    }
+                    self.wfile.write(f"data: {json.dumps(chunk, ensure_ascii=False)}\n\n".encode())
+                    self.wfile.write(b"data: [DONE]\n\n")
+                    self.wfile.flush()
+                except Exception:
+                    pass
             return
 
         try:

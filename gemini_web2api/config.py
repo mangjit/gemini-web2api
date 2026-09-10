@@ -14,9 +14,12 @@ DEFAULT_CONFIG = {
     "default_model": "gemini-3.6-flash",
     "log_requests": True,
     "cookie_file": None,
+    "cookie": None,
     "proxy": None,
     "api_keys": [],
     "temporary_chats": False,
+    "google_client_id": None,
+    "google_client_secret": None,
 }
 
 CONFIG = dict(DEFAULT_CONFIG)
