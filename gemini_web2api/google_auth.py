@@ -56,14 +56,16 @@ def _pkce() -> tuple:
 
 
 def service_login_url(handler) -> str:
-    """Full Google email-then-password page. Returns here; never opens Gemini."""
-    continue_to = public_origin(handler) + "/auth/connected"
-    return "https://accounts.google.com/v3/signin/identifier?" + urllib.parse.urlencode(
+    """Full Google email-then-password page.
+
+    Google returns HTTP 400 if ``continue`` is not a google.com URL, so this
+    never sends users back to this app that way. Never opens Gemini.
+    """
+    del handler
+    return "https://accounts.google.com/ServiceLogin?" + urllib.parse.urlencode(
         {
             "hl": "en",
-            "flowName": "GlifWebSignIn",
-            "flowEntry": "ServiceLogin",
-            "continue": continue_to,
+            "continue": "https://www.google.com/",
         }
     )
 

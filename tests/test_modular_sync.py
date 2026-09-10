@@ -305,16 +305,16 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertNotIn("gemini.google.com", (headers.get("Location") or ""))
         self.assertIn("not configured", body.decode())
 
-    def test_auth_connect_sends_google_login_then_back_here(self):
+    def test_auth_connect_opens_google_login_not_gemini(self):
         from urllib.parse import unquote
 
         status, headers, _ = self.get("/auth/connect")
         self.assertEqual(status, 302)
         location = unquote(headers.get("Location") or "")
-        self.assertIn("accounts.google.com", location)
-        self.assertIn("ServiceLogin", location)
-        self.assertIn("/auth/connected", location)
-        self.assertNotIn("gemini.google.com/app", location)
+        self.assertIn("accounts.google.com/ServiceLogin", location)
+        self.assertIn("www.google.com", location)
+        self.assertNotIn("/auth/connected", location)
+        self.assertNotIn("gemini.google.com", location)
 
     def test_auth_connected_closes_the_login_window(self):
         status, _, body = self.get("/auth/connected")

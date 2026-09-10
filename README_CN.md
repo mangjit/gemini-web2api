@@ -107,7 +107,7 @@ Google OAuth / AI Studio API Key **不能** 换成这些 cookie (`SID`, `SAPISID
 
 1. 打开 Playground, 点击 **Sign in with Google**。
 2. 在弹出的 Google 窗口输入邮箱和密码。
-3. 登录完成后该窗口会回到本站并关闭。只有收集到 Gemini cookie 时才会显示 **Signed in**。
+3. 完成后关闭该窗口。只有收集到 Gemini cookie 时才会显示 **Signed in**。
 
 Cookie 只留在该浏览器, 请求时作为 `X-Gemini-Cookie` 发送。API 客户端请在 Render 控制台设置 `GEMINI_COOKIE`。不要把 cookie 提交到 git。
 
