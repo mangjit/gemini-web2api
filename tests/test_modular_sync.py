@@ -248,11 +248,28 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b'id="attachBtn"', body)
         self.assertIn(b'id="input"', body)
         self.assertIn(b'id="geminiCookie"', body)
+        self.assertIn(b'id="googleSignIn"', body)
+        self.assertIn(b'id="cookieImport"', body)
+        self.assertIn(b"gemini-cookie-sync", body)
+        self.assertIn(b"Sign in with Google", body)
         self.assertIn(b'id="chatList"', body)
         self.assertIn(b'id="exportChats"', body)
         self.assertIn(b"sk-gemini", body)
         self.assertNotIn(b'id="<pre', body)
         self.assertNotIn(b"ro/textarea", body)
+        self.assertNotIn(b"type=\"password\" id=\"gmail", body)
+
+    def test_extension_zip(self):
+        import io
+        import zipfile
+
+        status, headers, body = self.get("/extension.zip")
+        self.assertEqual(status, 200)
+        self.assertIn("zip", headers["Content-Type"])
+        names = zipfile.ZipFile(io.BytesIO(body)).namelist()
+        self.assertTrue(any(name.endswith("manifest.json") for name in names))
+        self.assertTrue(any(name.endswith("popup.js") for name in names))
+        self.assertTrue(any("gemini-cookie-sync-extension/" in name for name in names))
 
     def test_playground_does_not_require_api_key(self):
         CONFIG["api_keys"] = ["secret"]
@@ -633,6 +650,49 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(events[3][1]["delta"], '{"city":"Shanghai"}')
         self.assertEqual(events[4][1]["arguments"], '{"city":"Shanghai"}')
         self.assertEqual(events[-1][1]["response"]["output"][0]["name"], "get_weather")
+
+
+class GoogleLoginCookieTests(unittest.TestCase):
+    def test_cookies_to_header_prefers_google_domain(self):
+        from gemini_web2api.login import cookies_to_header, header_is_ready
+
+        header = cookies_to_header([
+            {"name": "SAPISID", "value": "sap", "domain": ".accounts.google.com"},
+            {"name": "SAPISID", "value": "better", "domain": ".google.com"},
+            {"name": "SID", "value": "sid", "domain": ".google.com"},
+            {"name": "HSID", "value": "hsid", "domain": ".google.com"},
+            {"name": "ignored", "value": "nope", "domain": ".google.com"},
+        ])
+        self.assertEqual(header, "SID=sid; HSID=hsid; SAPISID=better")
+        self.assertTrue(header_is_ready(header))
+        self.assertFalse(header_is_ready("SAPISID=only"))
+
+    def test_auth_json_import_writes_cookie_file(self):
+        import tempfile
+
+        from gemini_web2api.login import cookie_from_auth_json, run_login
+
+        payload = {
+            "cookie": "SID=sidtest; HSID=hsidtest; SAPISID=saptest; __Secure-1PSID=psidtest",
+            "sapisid": "saptest",
+        }
+        self.assertIn("SID=sidtest", cookie_from_auth_json(payload))
+        with tempfile.TemporaryDirectory() as tmp:
+            src = os.path.join(tmp, "gemini-auth.json")
+            dest = os.path.join(tmp, "cookie.txt")
+            with open(src, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle)
+            self.assertEqual(run_login(output=dest, from_json=src), 0)
+            with open(dest, encoding="utf-8") as handle:
+                written = handle.read().strip()
+            self.assertIn("SAPISID=saptest", written)
+            self.assertIn("__Secure-1PSID=psidtest", written)
+
+    def test_login_rejects_password_only_json(self):
+        from gemini_web2api.login import cookie_from_auth_json
+
+        with self.assertRaises(ValueError):
+            cookie_from_auth_json({"password": "not-a-cookie"})
 
 
 if __name__ == "__main__":

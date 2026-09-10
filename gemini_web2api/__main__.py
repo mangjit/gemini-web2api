@@ -11,12 +11,23 @@ from . import __version__
 
 def main():
     parser = argparse.ArgumentParser(description="Gemini Web to OpenAI API")
+    parser.add_argument("command", nargs="?", default="serve", choices=["serve", "login"],
+                        help="serve the API (default) or login with Google to capture cookies")
     parser.add_argument("--port", type=int, default=None)
     parser.add_argument("--config", type=str, default=None)
     parser.add_argument("--cookie-file", type=str, default=None)
     parser.add_argument("--proxy", type=str, default=None, help="HTTP proxy, e.g. http://127.0.0.1:7890")
+    parser.add_argument("--output", type=str, default="cookie.txt",
+                        help="Where `login` writes the cookie string (do not commit)")
+    parser.add_argument("--from-json", dest="from_json", type=str, default=None,
+                        help="Import gemini-auth.json instead of opening a browser")
+    parser.add_argument("--timeout", type=int, default=300, help="Seconds to wait for Google sign-in")
     parser.add_argument("--version", action="version", version=f"gemini-web2api {__version__}")
     args = parser.parse_args()
+
+    if args.command == "login":
+        from .login import run_login
+        raise SystemExit(run_login(output=args.output, from_json=args.from_json, timeout=args.timeout))
 
     config_path = args.config or os.environ.get("GEMINI_WEB2API_CONFIG") or find_config()
     if config_path:

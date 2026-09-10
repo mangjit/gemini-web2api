@@ -40,6 +40,9 @@ const statusEl = document.getElementById("status");
 const exportButton = document.getElementById("export");
 const inspectButton = document.getElementById("inspect");
 const openButton = document.getElementById("open");
+const sendButton = document.getElementById("send");
+const copyButton = document.getElementById("copy");
+const LOGIN_URL = "https://accounts.google.com/ServiceLogin?hl=en&continue=https%3A%2F%2Fgemini.google.com%2Fapp";
 
 function setStatus(message, kind = "") {
   statusEl.textContent = message;
@@ -349,9 +352,88 @@ async function downloadJson(filename, payload) {
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
 
+function isPlaygroundTab(tab) {
+  const url = tab.url || "";
+  const title = tab.title || "";
+  if (title.toLowerCase().includes("gemini-web2api")) return true;
+  if (/https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?(\/|\/playground|\/index\.html)?\/?(\?.*)?$/.test(url)) return true;
+  if (url.includes("onrender.com") && !url.includes("gemini.google.com")) return true;
+  if (url.includes("/playground")) return true;
+  return false;
+}
+
+async function sendCookieToPlayground(payload) {
+  const tabs = await chrome.tabs.query({});
+  const targets = tabs.filter(isPlaygroundTab);
+  if (!targets.length) {
+    throw new Error("Open the gemini-web2api playground tab first, then click Send cookies.");
+  }
+  let sent = 0;
+  for (const tab of targets) {
+    if (!tab.id) continue;
+    await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      func: (data) => {
+        try {
+          if (data && data.cookie) window.localStorage.setItem("g2a.cookie", data.cookie);
+        } catch (e) {}
+        const field = document.getElementById("geminiCookie");
+        if (field && data && data.cookie) field.value = data.cookie;
+        window.postMessage({ source: "gemini-cookie-sync", ...data }, window.location.origin);
+      },
+      args: [payload]
+    });
+    sent += 1;
+  }
+  return sent;
+}
+
 openButton.addEventListener("click", async () => {
-  await chrome.tabs.create({ url: "https://gemini.google.com/app" });
+  await chrome.tabs.create({ url: LOGIN_URL });
 });
+
+if (copyButton) {
+  copyButton.addEventListener("click", async () => {
+    copyButton.disabled = true;
+    setStatus("Reading cookies…");
+    try {
+      const info = await buildInspection();
+      if (!info.validation.valid) throw new Error(inspectionMessage(info));
+      const cookieString = buildCookieString(info);
+      await navigator.clipboard.writeText(cookieString);
+      setStatus("Cookie string copied. Paste it in the playground Gemini cookie field.", "ok");
+    } catch (error) {
+      setStatus(error?.message || String(error), "warn");
+    } finally {
+      copyButton.disabled = false;
+    }
+  });
+}
+
+if (sendButton) {
+  sendButton.addEventListener("click", async () => {
+    sendButton.disabled = true;
+    setStatus("Reading cookies and sending to playground…");
+    try {
+      const info = await buildInspection();
+      if (!info.validation.valid) throw new Error(inspectionMessage(info));
+      const cookieString = buildCookieString(info);
+      const payload = {
+        cookie: cookieString,
+        sapisid: info.selected.get("SAPISID")?.value || "",
+        auth_user: info.authUser,
+        xsrf_token: info.pageMetadata.xsrfToken,
+        gemini_bl: info.pageMetadata.geminiBl
+      };
+      const sent = await sendCookieToPlayground(payload);
+      setStatus(`Sent cookies to ${sent} playground tab(s). Check the Gemini cookie field.`, "ok");
+    } catch (error) {
+      setStatus(error?.message || String(error), "warn");
+    } finally {
+      sendButton.disabled = false;
+    }
+  });
+}
 
 inspectButton.addEventListener("click", async () => {
   inspectButton.disabled = true;

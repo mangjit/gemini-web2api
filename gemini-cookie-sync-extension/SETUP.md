@@ -1,108 +1,37 @@
 # Gemini Cookie Sync Setup
 
-Short guide for extracting fresh Gemini auth data and applying it to `gemini-web2api`.
+Sign in to Gemini with Gmail, then send cookies to the playground. This extension never asks for your Google password.
 
-## What this extension exports
+Google OAuth tokens are **not** Gemini Web cookies. `SID`, `SAPISID`, and `__Secure-1PSID` are HttpOnly and can only be read with `chrome.cookies`.
 
-The extension reads the current signed-in Gemini session and exports:
+## Install
 
-- Google session cookies
-- `SAPISID`
-- `SNlM0e` (`xsrf_token`)
-- `cfb2h` (`gemini_bl`)
-- `auth_user`
+1. Download `gemini-cookie-sync-extension.zip` from the playground (**Get Cookie Sync** or `/extension.zip`) and unzip it, **or** use the `gemini-cookie-sync-extension` folder in this repo.
+2. Open `chrome://extensions`
+3. Enable **Developer mode**
+4. Click **Load unpacked**
+5. Select the unzipped `gemini-cookie-sync-extension` folder
 
-It saves them locally as `gemini-auth.json`.
+## Send cookies to the playground
 
-## Install and export
+1. Keep the gemini-web2api playground tab open
+2. Click **1. Sign in with Google** in the extension (or the playground button)
+3. Sign in with Gmail on Google’s page
+4. Open Gemini and refresh if needed
+5. Click **2. Send cookies to playground**
 
-1. Open `chrome://extensions`
-2. Enable **Developer mode**
-3. Click **Load unpacked**
-4. Select the `gemini-cookie-sync-extension` folder
-5. Open [https://gemini.google.com/app](https://gemini.google.com/app)
-6. Sign in and refresh the page
-7. Open the extension and click **Inspect session**
-8. Confirm the session looks ready
-9. Click **Export gemini-auth.json**
+The playground Gemini cookie field fills in automatically. Cookies stay in that browser (`localStorage`) and are sent as `X-Gemini-Cookie`. They are not uploaded to git.
 
-Expected ready state:
+You can also **Copy cookie string** or **Export gemini-auth.json**.
 
-```text
-XSRF / SNlM0e: present
-gemini_bl / cfb2h: present
-Session and XSRF are ready for export.
-```
-
-## Apply it in `gemini-web2api`
-
-Move the exported file into the project:
+## Apply `gemini-auth.json` locally
 
 ```bash
-cd /path/to/gemini-web2api
-
-WIN_HOME=$(wslpath "$(powershell.exe -NoProfile -Command '[Environment]::GetFolderPath(\"UserProfile\")' | tr -d '\r')")
-cp "$WIN_HOME/Downloads/gemini-auth.json" ./gemini-auth.json
-chmod 600 gemini-auth.json
+python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
 ```
 
-Update `config.json`:
-
-```bash
-cd /path/to/gemini-web2api
-
-AUTH_FILE="$(pwd)/gemini-auth.json"
-tmp=$(mktemp)
-
-jq \
-  --arg auth_file "$AUTH_FILE" \
-  --slurpfile auth "$AUTH_FILE" \
-  '
-    .cookie_file = $auth_file
-    | .auth_user = $auth[0].auth_user
-    | .xsrf_token = $auth[0].xsrf_token
-    | if (($auth[0].gemini_bl // "") | length) > 0
-      then .gemini_bl = $auth[0].gemini_bl
-      else .
-      end
-  ' config.json > "$tmp" &&
-mv "$tmp" config.json
-
-chmod 600 config.json
-```
-
-Quick check:
-
-```bash
-jq '{
-  cookie_file,
-  auth_user,
-  xsrf_token_set: ((.xsrf_token // "") | length > 0),
-  gemini_bl_set: ((.gemini_bl // "") | length > 0)
-}' config.json
-```
-
-## Restart and test
-
-```bash
-systemctl --user restart gemini-proxy
-```
-
-```bash
-curl -sS http://127.0.0.1:10012/v1/chat/completions \
-  -H "Content-Type: application/json" \
-  -H "Authorization: Bearer $API_KEY" \
-  -d '{
-    "model": "gemini-3.1-pro",
-    "messages": [
-      {
-        "role": "user",
-        "content": "Reply exactly with: authenticated-ok"
-      }
-    ]
-  }' | jq
-```
+Then run the server with `--cookie-file cookie.txt`, or set `GEMINI_COOKIE` in the Render dashboard. Do not commit `cookie.txt` or `gemini-auth.json`.
 
 ## Keep it secret
 
-`gemini-auth.json` contains a real Google session. Do not share it, print it, or commit it to Git.
+The cookie string is a live Google session. Do not share it, print it, or commit it to Git.

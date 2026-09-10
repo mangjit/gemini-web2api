@@ -1,9 +1,11 @@
 """HTTP server: OpenAI-compatible API endpoints."""
+import io
 import json
 import os
 import time
 import uuid
 import re
+import zipfile
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from socketserver import ThreadingMixIn
 
@@ -15,6 +17,18 @@ from .multimodal import detect_image_mime, fetch_image_bytes, upload_image
 from . import __version__
 
 _PLAYGROUND_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
+_HERE = os.path.dirname(os.path.abspath(__file__))
+
+
+def extension_dir():
+    candidates = [
+        os.path.normpath(os.path.join(_HERE, "..", "gemini-cookie-sync-extension")),
+        os.path.join(_HERE, "static", "cookie-sync"),
+    ]
+    for path in candidates:
+        if os.path.isfile(os.path.join(path, "manifest.json")):
+            return path
+    return None
 
 
 def _usage(prompt: str, text: str) -> dict:
@@ -90,6 +104,27 @@ class GeminiHandler(BaseHTTPRequestHandler):
             return
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _serve_extension_zip(self):
+        ext = extension_dir()
+        if not ext:
+            self.send_json({"error": "extension not packaged"}, 404)
+            return
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
+            for name in sorted(os.listdir(ext)):
+                path = os.path.join(ext, name)
+                if os.path.isfile(path) and not name.startswith("."):
+                    archive.write(path, arcname=f"gemini-cookie-sync-extension/{name}")
+        body = buf.getvalue()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/zip")
+        self.send_header("Content-Disposition", "attachment; filename=gemini-cookie-sync-extension.zip")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Content-Length", str(len(body)))
@@ -206,6 +241,8 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_json(self._health_payload())
             elif path in ("/", "/playground", "/index.html"):
                 self._serve_playground()
+            elif path in ("/extension.zip", "/gemini-cookie-sync-extension.zip"):
+                self._serve_extension_zip()
             else:
                 self.send_json({"error": "not found"}, 404)
         except (BrokenPipeError, ConnectionResetError):

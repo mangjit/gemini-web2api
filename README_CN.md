@@ -97,31 +97,40 @@ gemini-3.5-flash-thinking@think=2   # 中等
 gemini-3.5-flash-thinking@think=4   # 最浅
 ```
 
-## 可选: Cookie 配置 (Pro 模型)
+## 用 Google 账号登录 (Gemini Cookie)
 
-匿名访问对所有模型有效, 但 `gemini-3.1-pro` 在无认证时会路由到 Flash. 要获得真正的 Pro 路由, 需要 **Gemini Advanced (付费订阅)** 账号的 cookie:
+匿名访问部分文字对话可用, 但 Render 机房 IP 和 **图片对话** 需要已登录的 `gemini.google.com` 会话。`gemini-3.1-pro` 也需要 **Gemini Advanced** cookie, 否则会静默落到 Flash。
+
+Google OAuth / AI Studio API Key **不能** 换成这些 cookie (`SID`, `SAPISID`, `__Secure-1PSID`)。它们是 HttpOnly。本项目不会向你要 Gmail 密码。
+
+### Playground（含 Render）
+
+1. 打开 Playground, 点击 **Sign in with Google**。
+2. 在 Google 真实登录页用 Gmail 登录。
+3. 点击 **Get Cookie Sync**, 解压后在 `chrome://extensions` 里 Load unpacked。
+4. 保持 Playground 标签页打开, 点扩展 → **Send cookies to playground**。
+
+Cookie 只留在该浏览器, 请求时作为 `X-Gemini-Cookie` 发送。API 客户端请在 Render 控制台设置 `GEMINI_COOKIE`。不要把 cookie 提交到 git。
+
+### 本机浏览器登录
 
 ```bash
-python gemini_web2api.py --cookie-file cookie.txt
+pip install playwright
+playwright install chromium
+python -m gemini_web2api login
 ```
 
-### 如何获取 Cookie
+在弹出窗口用 Gmail 登录, 会写入 `cookie.txt`（已 gitignore）。然后:
 
-1. 打开 Chrome, 访问 [gemini.google.com](https://gemini.google.com) 并登录 **Gemini Advanced** 付费账号
-2. 打开开发者工具 (F12) → Application → Cookies → `https://gemini.google.com`
-3. 复制以下 cookie 值: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`
-4. 创建 `cookie.txt`, 格式如下:
-
-```
-SID=你的SID值; HSID=你的HSID值; SSID=你的SSID值; APISID=你的APISID值; SAPISID=你的SAPISID值; __Secure-1PSID=你的1PSID值
+```bash
+python -m gemini_web2api --cookie-file cookie.txt
 ```
 
-或使用 JSON 格式:
-```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "你的SAPISID值"}
-```
+导入扩展导出的文件:
 
-**替代方案 (浏览器扩展)**: 使用任意 "Export Cookies" 扩展导出 `gemini.google.com` 的 cookie, 然后转换为上述单行格式.
+```bash
+python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
+```
 
 ### 登录账号路径与 XSRF Token
 

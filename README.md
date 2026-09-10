@@ -109,31 +109,46 @@ gemini-3.5-flash-thinking@think=2   # medium
 gemini-3.5-flash-thinking@think=4   # shallowest
 ```
 
-## Optional: Cookie for Pro
+## Sign in with Google (Gemini cookies)
 
-Anonymous access works for all models, but `gemini-3.1-pro` routes to Flash without authentication. To get real Pro routing, you need a **Gemini Advanced (paid subscription)** account cookie:
+Anonymous access works for some text chats, but Render datacenter IPs and **image chat** need a signed-in `gemini.google.com` session. `gemini-3.1-pro` also needs a **Gemini Advanced** cookie or it silently routes to Flash.
+
+Google OAuth / AI Studio API keys **cannot** issue these cookies (`SID`, `SAPISID`, `__Secure-1PSID`). They are HttpOnly. This project never asks for your Gmail password.
+
+### Playground (including Render)
+
+1. Open the playground and click **Sign in with Google**.
+2. Sign in with Gmail on Google’s real page (gemini.google.com).
+3. Click **Get Cookie Sync**, unzip the download, then Load unpacked on `chrome://extensions`.
+4. Keep the playground tab open. Click the extension → **Send cookies to playground**.
+
+Cookies stay in that browser and are sent as `X-Gemini-Cookie`. Also set `GEMINI_COOKIE` in the Render dashboard so API clients work without the playground. Do not commit the cookie.
+
+### Local browser login
+
+On your own computer (needs a display):
 
 ```bash
-python gemini_web2api.py --cookie-file cookie.txt
+pip install playwright
+playwright install chromium
+python -m gemini_web2api login
 ```
 
-### How to get cookies
+Sign in with Gmail in the window that opens. Writes `cookie.txt` (gitignored). Then:
 
-1. Open Chrome, go to [gemini.google.com](https://gemini.google.com) and sign in with a **Gemini Advanced** Google account
-2. Open DevTools (F12) → Application → Cookies → `https://gemini.google.com`
-3. Copy these cookie values: `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID`
-4. Create `cookie.txt` in this format:
-
-```
-SID=your_sid_value; HSID=your_hsid_value; SSID=your_ssid_value; APISID=your_apisid_value; SAPISID=your_sapisid_value; __Secure-1PSID=your_1psid_value
+```bash
+python -m gemini_web2api --cookie-file cookie.txt
 ```
 
-Or use the JSON format:
-```json
-{"cookie": "SID=xxx; HSID=xxx; SSID=xxx; APISID=xxx; SAPISID=xxx; __Secure-1PSID=xxx", "sapisid": "your_sapisid_value"}
+Import an extension export without opening a browser:
+
+```bash
+python -m gemini_web2api login --from-json gemini-auth.json --output cookie.txt
 ```
 
-**Alternative (browser extension)**: Use any "Export Cookies" extension to export cookies for `gemini.google.com` in Netscape format, then convert to the single-line format above.
+### Manual fallback
+
+DevTools → Application → Cookies → `https://gemini.google.com`, then paste `SID`, `HSID`, `SSID`, `APISID`, `SAPISID`, `__Secure-1PSID` as one `Name=value; …` line.
 
 ### Authenticated account path and XSRF token
 
@@ -249,9 +264,9 @@ Note the two underscores in `__Secure-1PSID`. This is **not** an AI Studio API k
 
 To make chat work on Render:
 
-- Set `GEMINI_COOKIE` in the Render Environment tab (preferred), or
-- Paste the same cookie into the playground sidebar (sent as `X-Gemini-Cookie` for that browser only), or
-- Run the server on your own computer, or
+- Click **Sign in with Google** in the playground, then Cookie Sync → **Send cookies**, or
+- Set `GEMINI_COOKIE` in the Render Environment tab (preferred for API clients), or
+- Run `python -m gemini_web2api login` on your computer and use `--cookie-file cookie.txt`, or
 - Put that string in `config.json` as `"cookie"` / `"cookie_file"`, optionally with a residential `proxy`.
 
 Do **not** use an AI Studio API key. That is a different product.
@@ -340,7 +355,7 @@ resp = client.chat.completions.create(
 
 ## Limitations
 
-- **Image chat requires a cookie**: Gemini rejects anonymous image attachments. Set `GEMINI_COOKIE` (or the playground cookie field). Text-only chat can work without it; images cannot.
+- **Image chat requires a cookie**: Gemini rejects anonymous image attachments. Sign in with Google (Cookie Sync) or set `GEMINI_COOKIE`. Text-only chat can work without it; images cannot.
 - **Not real Pro/Ultra**: Without a paid subscription cookie, `gemini-3.1-pro` routes to the same Flash model. The "Pro" label is a UI preference, not a backend model switch.
 - **Single-turn only**: Each request is an independent conversation. Multi-turn context is simulated by including previous messages in the prompt.
 - **Rate limits**: Google may throttle high-frequency requests. The server retries automatically but sustained heavy use may be blocked.
