@@ -55,6 +55,24 @@ def _pkce() -> tuple:
     return verifier, challenge
 
 
+def service_login_url(handler) -> str:
+    """Full Google email-then-password page. Returns here; never opens Gemini."""
+    continue_to = public_origin(handler) + "/auth/connected"
+    return "https://accounts.google.com/v3/signin/identifier?" + urllib.parse.urlencode(
+        {
+            "hl": "en",
+            "flowName": "GlifWebSignIn",
+            "flowEntry": "ServiceLogin",
+            "continue": continue_to,
+        }
+    )
+
+
+def google_login_redirect(handler) -> str:
+    """Popup target after Sign in. OAuth when configured, otherwise Google login."""
+    return authorization_url(handler) or service_login_url(handler)
+
+
 def authorization_url(handler):
     """Google account picker for this app. Never opens gemini.google.com."""
     cid = client_id()
@@ -213,10 +231,13 @@ def popup_done_html(profile: dict) -> str:
         "name": profile.get("name") or "",
     })
     return (
-        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Signed in</title></head>"
-        "<body style='font-family:sans-serif;padding:24px'>Connected. You can close this window."
+        "<!DOCTYPE html><html><head><meta charset='utf-8'><title>Back to gemini-web2api</title></head>"
+        "<body style='font-family:sans-serif;padding:24px;background:#101624;color:#eef3ff'>"
+        "<p>You can close this window.</p>"
+        "<button type='button' onclick='window.close()' style='padding:10px 16px;border-radius:10px;border:0;cursor:pointer'>Close</button>"
         "<script>try{if(window.opener)window.opener.postMessage("
         + payload
-        + ",window.location.origin);}catch(e){}setTimeout(function(){window.close();},300);</script>"
+        + ",window.location.origin);}catch(e){}"
+        "setTimeout(function(){window.close();},200);</script>"
         "</body></html>"
     )

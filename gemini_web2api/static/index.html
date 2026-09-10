@@ -545,7 +545,7 @@
     var COOKIE_HINT_EMPTY = "Not signed in.";
     var COOKIE_HINT_SAVED = "Signed in.";
     var CHATS_KEY = "g2a.chats";
-    var GOOGLE_LOGIN_POPUP = "https://accounts.google.com/ServiceLogin?hl=en&continue=" + encodeURIComponent("https://gemini.google.com/app");
+    var GOOGLE_LOGIN_POPUP = "/auth/connect";
     var cookieWaitTimer = null;
     var cookieSyncPresent = false;
     var googleClientId = "";
@@ -1041,7 +1041,11 @@
     }
 
     function popupFeatures() {
-      return "width=900,height=720";
+      return "width=1100,height=820,scrollbars=yes,resizable=yes";
+    }
+
+    function closeAuthPopup() {
+      try { if (authPopup && !authPopup.closed) authPopup.close(); } catch (e) {}
     }
 
     function watchPopup() {
@@ -1049,6 +1053,15 @@
       window._popupWatch = setInterval(function () {
         var closed = true;
         try { closed = !authPopup || authPopup.closed; } catch (e) { closed = true; }
+        if (!closed) {
+          try {
+            var href = (authPopup.location && authPopup.location.href) || "";
+            if (href.indexOf(window.location.origin) === 0 && /\/auth\/(connected|google\/callback)/.test(href)) {
+              authPopup.close();
+              closed = true;
+            }
+          } catch (e) {}
+        }
         if (closed) {
           clearInterval(window._popupWatch);
           window._popupWatch = null;
@@ -1120,8 +1133,8 @@
       $("topSignIn").textContent = "Signing in…";
       if ($("googleSignInLabel")) $("googleSignInLabel").textContent = "Signing in…";
       startCookieWait();
-      try { if (authPopup && !authPopup.closed) authPopup.close(); } catch (e) {}
-      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin");
+      closeAuthPopup();
+      authPopup = window.open(GOOGLE_LOGIN_POPUP, "google-signin", popupFeatures());
       if (!authPopup) {
         state.notice = "Allow popups for this site, then click Sign in with Google again.";
         renderGoogleState();
@@ -1368,9 +1381,9 @@
         var d = e.data || {};
         if (d.source === "gemini-web2api-auth" && d.type === "signed-in") {
           applyGoogleProfile(d);
-          startCookieWait();
           hideLoginModal();
-          finishConnectAttempt();
+          closeAuthPopup();
+          finishConnectAttempt(true);
         }
         if (d.source !== "gemini-cookie-sync") return;
         if (d.type === "hello") cookieSyncPresent = true;
@@ -1378,6 +1391,7 @@
           saveCookie(d.cookie);
           stopCookieWait();
           hideLoginModal();
+          closeAuthPopup();
           finishConnectAttempt();
         }
       });

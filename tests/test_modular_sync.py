@@ -253,7 +253,9 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertIn(b"Sign in with Google", body)
         self.assertIn(b"request-cookies", body)
         self.assertIn(b"Signed in", body)
-        self.assertIn(b"accounts.google.com", body)
+        self.assertIn(b"/auth/connect", body)
+        self.assertIn(b"width=1100", body)
+        self.assertNotIn(b"gemini.google.com/app", body)
         self.assertIn(b"application/pdf", body)
         self.assertNotIn(b"Get Cookie Sync", body)
         self.assertNotIn(b'id="cookieImport"', body)
@@ -302,6 +304,25 @@ class StreamingEndpointTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertNotIn("gemini.google.com", (headers.get("Location") or ""))
         self.assertIn("not configured", body.decode())
+
+    def test_auth_connect_sends_google_login_then_back_here(self):
+        from urllib.parse import unquote
+
+        status, headers, _ = self.get("/auth/connect")
+        self.assertEqual(status, 302)
+        location = unquote(headers.get("Location") or "")
+        self.assertIn("accounts.google.com", location)
+        self.assertIn("ServiceLogin", location)
+        self.assertIn("/auth/connected", location)
+        self.assertNotIn("gemini.google.com/app", location)
+
+    def test_auth_connected_closes_the_login_window(self):
+        status, _, body = self.get("/auth/connected")
+        self.assertEqual(status, 200)
+        self.assertIn(b"window.close", body)
+        self.assertIn(b"postMessage", body)
+        self.assertNotIn(b"gemini.google.com/app", body)
+        self.assertNotIn(b'type="password"', body)
 
     def test_auth_session_anonymous(self):
         status, _, body = self.get("/auth/session")

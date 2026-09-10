@@ -322,6 +322,14 @@ class GeminiHandler(BaseHTTPRequestHandler):
                 self.send_header("Location", url)
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
+            elif path == "/auth/connect":
+                url = google_auth.google_login_redirect(self)
+                self.send_response(302)
+                self.send_header("Location", url)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+            elif path == "/auth/connected":
+                self._send_html(google_auth.popup_done_html({}))
             elif path == "/auth/google/callback":
                 self._handle_google_callback()
             elif path == "/auth/session":
