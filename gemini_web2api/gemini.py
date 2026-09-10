@@ -192,6 +192,19 @@ def _attachment_entries(file_refs: list) -> list:
     return entries
 
 
+def _xsrf_token() -> str:
+    """XSRF `at` token. Prefer config, else SNlM0e already fetched for uploads."""
+    token = (CONFIG.get("xsrf_token") or "").strip()
+    if token:
+        return token
+    try:
+        from . import multimodal
+        tokens = (getattr(multimodal, "_page_tokens_cache", None) or {}).get("tokens") or {}
+        return (tokens.get("at") or "").strip()
+    except Exception:
+        return ""
+
+
 def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list = None, extra_fields: dict = None) -> str:
     inner = [None] * 102
     refs = _attachment_entries(file_refs)
@@ -220,8 +233,9 @@ def _build_payload(prompt: str, model_id: int, think_mode: int, file_refs: list 
             inner[k] = v
     outer = [None, json.dumps(inner)]
     params = {"f.req": json.dumps(outer)}
-    if CONFIG.get("xsrf_token"):
-        params["at"] = CONFIG["xsrf_token"]
+    at = _xsrf_token()
+    if at:
+        params["at"] = at
     return urllib.parse.urlencode(params)
 
 
@@ -306,6 +320,13 @@ def update_bl_if_needed() -> bool:
 def empty_upstream_message(raw: str = "", has_files: bool = False) -> str:
     blob = (raw or "").lower()
     if has_files or "1100" in (raw or ""):
+        cookie_str, _ = load_cookie()
+        if cookie_str:
+            return (
+                "Gemini returned no text for this image. A cookie was sent, but Google "
+                "still rejected file chat. Refresh GEMINI_COOKIE from a signed-in "
+                "gemini.google.com session and try a smaller PNG or JPEG."
+            )
         return (
             "Image chat needs a signed-in Gemini cookie. Click Sign in with Google, "
             "finish email and password, then try the image again."

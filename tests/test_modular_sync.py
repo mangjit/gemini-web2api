@@ -135,6 +135,19 @@ class PayloadPersistenceTests(unittest.TestCase):
         self.assertIn("image", msg.lower())
         self.assertIn("cookie", msg.lower())
 
+    def test_payload_includes_cached_page_xsrf(self):
+        from gemini_web2api import multimodal
+
+        original = dict(multimodal._page_tokens_cache)
+        CONFIG["xsrf_token"] = None
+        try:
+            multimodal._page_tokens_cache["tokens"] = {"at": "page-xsrf"}
+            qs = parse_qs(_build_payload("hello", 1, 4))
+            self.assertEqual(qs.get("at", [None])[0], "page-xsrf")
+        finally:
+            multimodal._page_tokens_cache.clear()
+            multimodal._page_tokens_cache.update(original)
+
 
 class MessageParsingTests(unittest.TestCase):
     def test_messages_to_prompt_extracts_openai_image_url_data_url(self):
